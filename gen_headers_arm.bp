@@ -1013,7 +1013,6 @@ genrule {
         "--gen_dir $(genDir) " +
         "--arch_asm_kbuild $(location arch/arm/include/uapi/asm/Kbuild) " +
         "--arch_include_uapi $(locations arch/arm/include/uapi/**/*.h) " +
-        "--techpack_include_uapi $(locations techpack/*/include/uapi/*/**/*.h) " +
         "--asm_generic_kbuild $(location include/uapi/asm-generic/Kbuild.asm) " +
         "blueprints " +
         "# $(in)",
@@ -1041,7 +1040,6 @@ genrule {
         "--gen_dir $(genDir) " +
         "--arch_asm_kbuild $(location arch/arm/include/uapi/asm/Kbuild) " +
         "--arch_include_uapi $(locations arch/arm/include/uapi/**/*.h) " +
-        "--techpack_include_uapi $(locations techpack/*/include/uapi/*/**/*.h) " +
         "--asm_generic_kbuild $(location include/uapi/asm-generic/Kbuild.asm) " +
         "headers " +
         "--old_gen_headers_bp $(location gen_headers_arm.bp) " +
