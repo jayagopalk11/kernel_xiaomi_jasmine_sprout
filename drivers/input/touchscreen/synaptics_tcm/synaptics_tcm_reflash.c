@@ -1,10 +1,9 @@
 /*
  * Synaptics TCM touchscreen driver
  *
- * Copyright (C) 2017-2018 Synaptics Incorporated. All rights reserved.
+ * Copyright (C) 2017-2019 Synaptics Incorporated. All rights reserved.
  *
- * Copyright (C) 2017-2018 Scott Lin <scott.lin@tw.synaptics.com>
- * Copyright (C) 2018 XiaoMi, Inc.
+ * Copyright (C) 2017-2019 Scott Lin <scott.lin@tw.synaptics.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,14 +34,6 @@
 #include <linux/firmware.h>
 #include "synaptics_tcm_core.h"
 
-/* add tp vendor information by wanghan add */
-#include "../lct_tp_info.h"
-/* add tp vendor information by wanghan end */
-
-/* add check LCM by wanghan start */
-extern bool lct_syna_verify_flag;
-/* add check LCM by wanghan end */
-
 #define STARTUP_REFLASH
 
 #define FORCE_REFLASH false
@@ -53,7 +44,7 @@ extern bool lct_syna_verify_flag;
 
 #define CUSTOM_DIR_NAME "custom"
 
-#define FW_IMAGE_NAME "synaptics/boe_td4320_i2c_F7A.img"
+#define FW_IMAGE_NAME "synaptics_firmware.img"
 
 #define BOOT_CONFIG_ID "BOOT_CONFIG"
 
@@ -69,7 +60,7 @@ extern bool lct_syna_verify_flag;
 
 #define FB_READY_WAIT_MS 100
 
-#define FB_READY_TIMEOUT_S 30
+#define FB_READY_TIMEOUT_S 80
 
 #define IMAGE_FILE_MAGIC_VALUE 0x4818472b
 
@@ -348,7 +339,7 @@ static int reflash_update_disp_config(bool reset);
 
 static int reflash_do_reflash(void);
 
-STORE_PROTOTYPE(reflash, reflash)
+STORE_PROTOTYPE(reflash, reflash);
 
 static struct device_attribute *attrs[] = {
 	ATTRIFY(reflash),
@@ -386,7 +377,7 @@ static struct bin_attribute bin_attrs[] = {
 	{
 		.attr = {
 			.name = "image",
-			.mode = (S_IWUSR | S_IWGRP),
+			.mode = 0220,
 		},
 		.size = 0,
 		.write = reflash_sysfs_image_store,
@@ -394,7 +385,7 @@ static struct bin_attribute bin_attrs[] = {
 	{
 		.attr = {
 			.name = "lockdown",
-			.mode = (S_IRUGO | S_IWUSR | S_IWGRP),
+			.mode = 0664,
 		},
 		.size = 0,
 		.read = reflash_sysfs_lockdown_show,
@@ -403,7 +394,7 @@ static struct bin_attribute bin_attrs[] = {
 	{
 		.attr = {
 			.name = "lcm",
-			.mode = (S_IRUGO | S_IWUSR | S_IWGRP),
+			.mode = 0664,
 		},
 		.size = 0,
 		.read = reflash_sysfs_lcm_show,
@@ -412,7 +403,7 @@ static struct bin_attribute bin_attrs[] = {
 	{
 		.attr = {
 			.name = "oem",
-			.mode = (S_IRUGO | S_IWUSR | S_IWGRP),
+			.mode = 0664,
 		},
 		.size = 0,
 		.read = reflash_sysfs_oem_show,
@@ -427,8 +418,7 @@ static ssize_t reflash_sysfs_reflash_store(struct device *dev,
 	unsigned int input;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
-	if (sscanf(buf, "%u", &input) != 1)
+	if (kstrtouint(buf, 10, &input))
 		return -EINVAL;
 
 	mutex_lock(&tcm_hcd->extif_mutex);
@@ -458,7 +448,7 @@ static ssize_t reflash_sysfs_reflash_store(struct device *dev,
 
 	retval = reflash_get_fw_image();
 	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent,
+		LOGD(tcm_hcd->pdev->dev.parent,
 				"Failed to get firmware image\n");
 		goto exit;
 	}
@@ -491,7 +481,7 @@ static ssize_t reflash_sysfs_reflash_store(struct device *dev,
 			retval = reflash_update_disp_config(true);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to reflash display config\n");
+				"Failed to reflash display config\n");
 			goto exit;
 		}
 	}
@@ -500,7 +490,7 @@ static ssize_t reflash_sysfs_reflash_store(struct device *dev,
 		retval = reflash_update_app_config(true);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to reflash application config\n");
+				"Failed to reflash application config\n");
 			goto exit;
 		}
 	}
@@ -523,7 +513,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -534,7 +523,6 @@ static ssize_t reflash_sysfs_image_store(struct file *data_file,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	retval = secure_memcpy(&reflash_hcd->image_buf[pos],
@@ -556,7 +544,6 @@ static ssize_t reflash_sysfs_image_store(struct file *data_file,
 exit:
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -568,7 +555,6 @@ static ssize_t reflash_sysfs_lockdown_show(struct file *data_file,
 	unsigned int readlen;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	mutex_lock(&reflash_hcd->reflash_mutex);
@@ -587,7 +573,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -598,7 +583,6 @@ static ssize_t reflash_sysfs_lockdown_store(struct file *data_file,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	pm_stay_awake(&tcm_hcd->pdev->dev);
@@ -621,7 +605,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -633,7 +616,6 @@ static ssize_t reflash_sysfs_lcm_show(struct file *data_file,
 	unsigned int readlen;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	mutex_lock(&reflash_hcd->reflash_mutex);
@@ -652,7 +634,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -663,7 +644,6 @@ static ssize_t reflash_sysfs_lcm_store(struct file *data_file,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	pm_stay_awake(&tcm_hcd->pdev->dev);
@@ -686,7 +666,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -698,7 +677,6 @@ static ssize_t reflash_sysfs_oem_show(struct file *data_file,
 	unsigned int readlen;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	mutex_lock(&reflash_hcd->reflash_mutex);
@@ -717,7 +695,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -728,7 +705,6 @@ static ssize_t reflash_sysfs_oem_store(struct file *data_file,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	pm_stay_awake(&tcm_hcd->pdev->dev);
@@ -751,7 +727,6 @@ exit:
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -761,7 +736,6 @@ static int reflash_set_up_flash_access(void)
 	unsigned int temp;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = tcm_hcd->identify(tcm_hcd, true);
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -801,11 +775,10 @@ static int reflash_set_up_flash_access(void)
 
 	if (reflash_hcd->write_block_size > (tcm_hcd->wr_chunk_size - 5)) {
 		LOGE(tcm_hcd->pdev->dev.parent,
-				"Write block size greater than available chunk space\n");
+			"Write size greater than available chunk space\n");
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -826,7 +799,6 @@ static int reflash_parse_fw_image(void)
 	const unsigned char *image;
 	const unsigned char *content;
 
-	LOG_ENTRY();
 	image = reflash_hcd->image;
 	image_info = &reflash_hcd->image_info;
 	header = (struct image_header *)image;
@@ -859,9 +831,9 @@ static int reflash_parse_fw_image(void)
 		flash_addr = le4_to_uint(descriptor->flash_addr_words) * 2;
 		checksum = le4_to_uint(descriptor->checksum);
 
-		if (0 == strncmp((char *)descriptor->id_string,
-					BOOT_CONFIG_ID,
-					strlen(BOOT_CONFIG_ID))) {
+		if (!memcmp((char *)descriptor->id_string,
+				BOOT_CONFIG_ID,
+				strlen(BOOT_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
 						"Boot config checksum error\n");
@@ -876,63 +848,63 @@ static int reflash_parse_fw_image(void)
 			LOGD(tcm_hcd->pdev->dev.parent,
 					"Boot config flash address = 0x%08x\n",
 					flash_addr);
-		} else if (0 == strncmp((char *)descriptor->id_string,
-					APP_CODE_ID,
-					strlen(APP_CODE_ID))) {
+		} else if (!memcmp((char *)descriptor->id_string,
+				APP_CODE_ID,
+				strlen(APP_CODE_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Application firmware checksum error\n");
+					"APP firmware checksum error\n");
 				return -EINVAL;
 			}
 			image_info->app_firmware.size = length;
 			image_info->app_firmware.data = content;
 			image_info->app_firmware.flash_addr = flash_addr;
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Application firmware size = %d\n",
-					length);
+				"Application firmware size = %d\n",
+				length);
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Application firmware flash address = 0x%08x\n",
-					flash_addr);
-		} else if (0 == strncmp((char *)descriptor->id_string,
-					PROD_TEST_ID,
-					strlen(PROD_TEST_ID))) {
+				"Application firmware flash address = 0x%08x\n",
+				flash_addr);
+		} else if (!memcmp((char *)descriptor->id_string,
+				PROD_TEST_ID,
+				strlen(PROD_TEST_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Production test firmware checksum error\n");
+					"Production test checksum error\n");
 				return -EINVAL;
 			}
 			image_info->prod_test_firmware.size = length;
 			image_info->prod_test_firmware.data = content;
 			image_info->prod_test_firmware.flash_addr = flash_addr;
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Production test firmware size = %d\n",
-					length);
+				"Production test firmware size = %d\n",
+				length);
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Production test firmware flash address = 0x%08x\n",
-					flash_addr);
-		} else if (0 == strncmp((char *)descriptor->id_string,
-					APP_CONFIG_ID,
-					strlen(APP_CONFIG_ID))) {
+				"Production test flash address = 0x%08x\n",
+				flash_addr);
+		} else if (!memcmp((char *)descriptor->id_string,
+				APP_CONFIG_ID,
+				strlen(APP_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Application config checksum error\n");
+					"Application config checksum error\n");
 				return -EINVAL;
 			}
 			image_info->app_config.size = length;
 			image_info->app_config.data = content;
 			image_info->app_config.flash_addr = flash_addr;
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Application config size = %d\n",
-					length);
+				"Application config size = %d\n",
+				length);
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Application config flash address = 0x%08x\n",
-					flash_addr);
-		} else if (0 == strncmp((char *)descriptor->id_string,
-					DISP_CONFIG_ID,
-					strlen(DISP_CONFIG_ID))) {
+				"Application config flash address = 0x%08x\n",
+				flash_addr);
+		} else if (!memcmp((char *)descriptor->id_string,
+				DISP_CONFIG_ID,
+				strlen(DISP_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Display config checksum error\n");
+					"Display config checksum error\n");
 				return -EINVAL;
 			}
 			reflash_hcd->disp_cfg_update = true;
@@ -940,31 +912,36 @@ static int reflash_parse_fw_image(void)
 			image_info->disp_config.data = content;
 			image_info->disp_config.flash_addr = flash_addr;
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Display config size = %d\n",
-					length);
+				"Display config size = %d\n",
+				length);
 			LOGD(tcm_hcd->pdev->dev.parent,
-					"Display config flash address = 0x%08x\n",
-					flash_addr);
+				"Display config flash address = 0x%08x\n",
+				flash_addr);
 		}
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
 static int reflash_get_fw_image(void)
 {
 	int retval;
+	const char *fw_name;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
+	const struct syna_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	LOG_ENTRY();
+	if (bdata->fw_name)
+		fw_name = bdata->fw_name;
+	else
+		fw_name = FW_IMAGE_NAME;
+
 	if (reflash_hcd->image == NULL) {
-		retval = request_firmware(&reflash_hcd->fw_entry, FW_IMAGE_NAME,
+		retval = request_firmware(&reflash_hcd->fw_entry, fw_name,
 				tcm_hcd->pdev->dev.parent);
 		if (retval < 0) {
-			LOGE(tcm_hcd->pdev->dev.parent,
+			LOGD(tcm_hcd->pdev->dev.parent,
 					"Failed to request %s\n",
-					FW_IMAGE_NAME);
+					fw_name);
 			return retval;
 		}
 
@@ -983,14 +960,12 @@ static int reflash_get_fw_image(void)
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
 static enum update_area reflash_compare_id_info(void)
 {
 	enum update_area update_area;
-	char buf[64];
 	unsigned int idx;
 	unsigned int image_fw_id;
 	unsigned int device_fw_id;
@@ -1000,8 +975,6 @@ static enum update_area reflash_compare_id_info(void)
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 	const unsigned char *app_config_data;
 
-	LOG_ENTRY();
-	LOGV("compare id\n");
 	update_area = NONE;
 
 	if (reflash_hcd->image_info.app_config.size < sizeof(*header)) {
@@ -1014,59 +987,42 @@ static enum update_area reflash_compare_id_info(void)
 	header = (struct app_config_header *)app_config_data;
 
 	if (reflash_hcd->force_update) {
-		LOGV("force update\n");
 		update_area = FIRMWARE_CONFIG;
 		goto exit;
 	}
 
 	if (tcm_hcd->id_info.mode != MODE_APPLICATION) {
-		LOGV("update, because not MODE_APPLICATION\n");
 		update_area = FIRMWARE_CONFIG;
 		goto exit;
 	}
-
 
 	image_fw_id = le4_to_uint(header->build_id);
 	device_fw_id = tcm_hcd->packrat_number;
 
-
-	LOGV("image_fw_id=0x%02X, device_fw_id=0x%02X\n", image_fw_id, device_fw_id);
-
-
-	image_config_id = header->customer_config_id;
-	device_config_id = tcm_hcd->app_info.customer_config_id;
-
-
-	memset(buf, 0, sizeof(buf));
-	strncpy(buf, image_config_id, 16);
-	LOGV("image_config_id=%s\n", buf);
-	memset(buf, 0, sizeof(buf));
-	strncpy(buf, device_config_id, 16);
-	LOGV("device_config_id=%s\n", buf);
-
-
 	if (image_fw_id > device_fw_id) {
 		LOGN(tcm_hcd->pdev->dev.parent,
-				"Image firmware ID newer than device firmware ID\n");
+			"Image firmware ID newer than device firmware ID\n");
 		update_area = FIRMWARE_CONFIG;
 		goto exit;
 	} else if (image_fw_id < device_fw_id) {
 		LOGN(tcm_hcd->pdev->dev.parent,
-				"Image firmware ID older than device firmware ID\n");
+			"Image firmware ID older than device firmware ID\n");
 		update_area = NONE;
 		goto exit;
 	}
 
+	image_config_id = header->customer_config_id;
+	device_config_id = tcm_hcd->app_info.customer_config_id;
 
 	for (idx = 0; idx < 16; idx++) {
 		if (image_config_id[idx] > device_config_id[idx]) {
 			LOGN(tcm_hcd->pdev->dev.parent,
-					"Image config ID newer than device config ID\n");
+				"Image config ID newer than device's ID\n");
 			update_area = CONFIG_ONLY;
 			goto exit;
 		} else if (image_config_id[idx] < device_config_id[idx]) {
 			LOGN(tcm_hcd->pdev->dev.parent,
-					"Image config ID older than device config ID\n");
+				"Image config ID older than device's ID\n");
 			update_area = NONE;
 			goto exit;
 		}
@@ -1075,18 +1031,15 @@ static enum update_area reflash_compare_id_info(void)
 	update_area = NONE;
 
 exit:
-	if (update_area == NONE) {
-		LOGN(tcm_hcd->pdev->dev.parent,
-				"No need to do reflash\n");
-	} else {
-		LOGN(tcm_hcd->pdev->dev.parent,
+	if (update_area == NONE)
+		LOGD(tcm_hcd->pdev->dev.parent, "No need to do reflash\n");
+	else
+		LOGD(tcm_hcd->pdev->dev.parent,
 				"Updating %s\n",
 				update_area == FIRMWARE_CONFIG ?
 				"firmware and config" :
 				"config only");
-	}
 
-	LOG_DONE();
 	return update_area;
 }
 
@@ -1098,7 +1051,6 @@ static int reflash_read_flash(unsigned int address, unsigned char *data,
 	unsigned int flash_addr_words;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	LOCK_BUFFER(reflash_hcd->out);
 
 	retval = syna_tcm_alloc_mem(tcm_hcd,
@@ -1106,7 +1058,7 @@ static int reflash_read_flash(unsigned int address, unsigned char *data,
 			6);
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to allocate memory for reflash_hcd->out.buf\n");
+			"Failed to allocate memory for reflash_hcd->out.buf\n");
 		UNLOCK_BUFFER(reflash_hcd->out);
 		return retval;
 	}
@@ -1164,7 +1116,6 @@ static int reflash_read_flash(unsigned int address, unsigned char *data,
 
 	UNLOCK_BUFFER(reflash_hcd->resp);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1179,7 +1130,6 @@ static int reflash_read_data(enum flash_area area, bool run_app_firmware,
 	struct syna_tcm_boot_info *boot_info;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	switch (area) {
 	case CUSTOM_LCM:
 	case CUSTOM_OEM:
@@ -1258,7 +1208,7 @@ static int reflash_read_data(enum flash_area area, bool run_app_firmware,
 			length);
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to allocate memory for reflash_hcd->read.buf\n");
+			"Failed to allocate memory for read.buf\n");
 		UNLOCK_BUFFER(reflash_hcd->read);
 		goto run_app_firmware;
 	}
@@ -1279,7 +1229,7 @@ static int reflash_read_data(enum flash_area area, bool run_app_firmware,
 				length);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to allocate memory for output->buf\n");
+				"Failed to allocate memory for output->buf\n");
 			UNLOCK_BUFFER(reflash_hcd->read);
 			goto run_app_firmware;
 		}
@@ -1313,7 +1263,6 @@ run_app_firmware:
 	}
 
 exit:
-	LOG_DONE();
 	return retval;
 }
 
@@ -1324,7 +1273,6 @@ static int reflash_check_boot_config(void)
 	unsigned int device_addr;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (reflash_hcd->image_info.boot_config.size < BOOT_CONFIG_SIZE) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"No valid boot config in image file\n");
@@ -1342,7 +1290,6 @@ static int reflash_check_boot_config(void)
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1355,7 +1302,6 @@ static int reflash_check_app_config(void)
 	unsigned int device_size;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (reflash_hcd->image_info.app_config.size == 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"No application config in image file\n");
@@ -1384,7 +1330,6 @@ static int reflash_check_app_config(void)
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1397,7 +1342,6 @@ static int reflash_check_disp_config(void)
 	unsigned int device_size;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (reflash_hcd->image_info.disp_config.size == 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"No display config in image file\n");
@@ -1425,7 +1369,6 @@ static int reflash_check_disp_config(void)
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1433,14 +1376,12 @@ static int reflash_check_prod_test_firmware(void)
 {
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (reflash_hcd->image_info.prod_test_firmware.size == 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"No production test firmware in image file\n");
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1448,14 +1389,12 @@ static int reflash_check_app_firmware(void)
 {
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (reflash_hcd->image_info.app_firmware.size == 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"No application firmware in image file\n");
 		return -EINVAL;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1471,7 +1410,6 @@ static int reflash_write_flash(unsigned int address, const unsigned char *data,
 	unsigned int block_address;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	w_length = tcm_hcd->wr_chunk_size - 5;
 
 	w_length = w_length - (w_length % reflash_hcd->write_block_size);
@@ -1496,7 +1434,7 @@ static int reflash_write_flash(unsigned int address, const unsigned char *data,
 				xfer_length + 2);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to allocate memory for reflash_hcd->out.buf\n");
+				"Failed to allocate memory for out.buf\n");
 			UNLOCK_BUFFER(reflash_hcd->resp);
 			UNLOCK_BUFFER(reflash_hcd->out);
 			return retval;
@@ -1551,7 +1489,6 @@ static int reflash_write_flash(unsigned int address, const unsigned char *data,
 	UNLOCK_BUFFER(reflash_hcd->resp);
 	UNLOCK_BUFFER(reflash_hcd->out);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1569,7 +1506,6 @@ static int reflash_erase_flash(unsigned int page_start, unsigned int page_count)
 	unsigned char out_buf[2];
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	out_buf[0] = (unsigned char)page_start;
 	out_buf[1] = (unsigned char)page_count;
 
@@ -1594,7 +1530,6 @@ static int reflash_erase_flash(unsigned int page_start, unsigned int page_count)
 
 	UNLOCK_BUFFER(reflash_hcd->resp);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1615,7 +1550,6 @@ static int reflash_update_custom_otp(const unsigned char *data,
 	unsigned int length;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = reflash_set_up_flash_access();
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -1664,7 +1598,6 @@ run_app_firmware:
 
 	tcm_hcd->update_watchdog(tcm_hcd, true);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1678,7 +1611,6 @@ static int reflash_update_custom_lcm(const unsigned char *data,
 	unsigned int page_count;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = tcm_hcd->get_data_location(tcm_hcd,
 			CUSTOM_LCM,
 			&addr,
@@ -1747,7 +1679,6 @@ run_app_firmware:
 
 	tcm_hcd->update_watchdog(tcm_hcd, true);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1761,7 +1692,6 @@ static int reflash_update_custom_oem(const unsigned char *data,
 	unsigned int page_count;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = tcm_hcd->get_data_location(tcm_hcd,
 			CUSTOM_OEM,
 			&addr,
@@ -1830,7 +1760,6 @@ run_app_firmware:
 
 	tcm_hcd->update_watchdog(tcm_hcd, true);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1844,7 +1773,6 @@ static int reflash_update_boot_config(bool lock)
 	struct boot_config *last_slot;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = reflash_set_up_flash_access();
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -1927,7 +1855,6 @@ reset:
 
 	tcm_hcd->update_watchdog(tcm_hcd, true);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1939,47 +1866,23 @@ reflash_update(prod_test_firmware)
 
 reflash_update(app_firmware)
 
-	/* add tp vendor information by wanghan add */
-
-#define SYNA_TP_INFO_SIZE       128
-
-static int lct_syna_tp_info_update(struct syna_tcm_hcd *tcm_hcd)
-{
-	char tp_info_buf[SYNA_TP_INFO_SIZE];
-	unsigned char *image_config_id;
-	struct app_config_header *header;
-	const unsigned char *app_config_data;
-
-	LOG_ENTRY();
-	app_config_data = reflash_hcd->image_info.app_config.data;
-	header = (struct app_config_header *)app_config_data;
-	image_config_id = header->customer_config_id;
-	memset(tp_info_buf, 0, sizeof(tp_info_buf));
-	sprintf(tp_info_buf, "[Vendor]boe,[FW]0x%c%c,[IC]td4320\n",
-			image_config_id[14],
-			image_config_id[15]);
-	update_lct_tp_info(tp_info_buf, NULL);
-	LOG_DONE();
-	return 0;
-}
-/* add tp vendor information by wanghan end */
-
 static int reflash_do_reflash(void)
 {
 	int retval;
 	enum update_area update_area;
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = reflash_get_fw_image();
 	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent,
+		LOGD(tcm_hcd->pdev->dev.parent,
 				"Failed to get firmware image\n");
 		goto exit;
 	}
 
-	LOGN(tcm_hcd->pdev->dev.parent,
+	LOGD(tcm_hcd->pdev->dev.parent,
 			"Start of reflash\n");
+
+	atomic_set(&tcm_hcd->firmware_flashing, 1);
 
 	update_area = reflash_compare_id_info();
 
@@ -1988,7 +1891,7 @@ static int reflash_do_reflash(void)
 		retval = reflash_update_app_firmware(false);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to reflash application firmware\n");
+				"Failed to reflash application firmware\n");
 			goto exit;
 		}
 		memset(&tcm_hcd->app_info, 0x00, sizeof(tcm_hcd->app_info));
@@ -1996,7 +1899,7 @@ static int reflash_do_reflash(void)
 			retval = reflash_update_prod_test_firmware(false);
 			if (retval < 0) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Failed to reflash production test firmware\n");
+					"Failed to reflash production test\n");
 				goto exit;
 			}
 		}
@@ -2005,14 +1908,14 @@ static int reflash_do_reflash(void)
 			retval = reflash_update_disp_config(false);
 			if (retval < 0) {
 				LOGE(tcm_hcd->pdev->dev.parent,
-						"Failed to reflash display config\n");
+					"Failed to reflash display config\n");
 				goto exit;
 			}
 		}
 		retval = reflash_update_app_config(true);
 		if (retval < 0) {
 			LOGE(tcm_hcd->pdev->dev.parent,
-					"Failed to reflash application config\n");
+				"Failed to reflash application config\n");
 			goto exit;
 		}
 		break;
@@ -2021,14 +1924,8 @@ static int reflash_do_reflash(void)
 		break;
 	}
 
-	LOGN(tcm_hcd->pdev->dev.parent,
+	LOGD(tcm_hcd->pdev->dev.parent,
 			"End of reflash\n");
-	/* add tp vendor information by wanghan add */
-	if (update_area != NONE) {
-		lct_syna_tp_info_update(tcm_hcd);
-		LOGV("Update /proc/tp_info\n");
-	}
-	/* add tp vendor information by wanghan end */
 
 	retval = 0;
 
@@ -2040,144 +1937,37 @@ exit:
 		reflash_hcd->image_size = 0;
 	}
 
-	LOG_DONE();
+	atomic_set(&tcm_hcd->firmware_flashing, 0);
+	wake_up_interruptible(&tcm_hcd->reflash_wq);
 	return retval;
 }
-
-/* add tp vendor information by wanghan add */
-static int lct_syna_tp_lockdown_info_update(char *buf, struct syna_tcm_hcd *tcm_hcd)
-{
-	int retval;
-
-	LOG_ENTRY();
-
-	mutex_lock(&tcm_hcd->extif_mutex);
-	mutex_lock(&reflash_hcd->reflash_mutex);
-
-	retval = reflash_read_data(CUSTOM_OTP, true, NULL);
-	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to read lockdown data\n");
-		goto exit;
-	}
-	sprintf(buf, "%02x%02x%02x%02x%02x%02x%02x\n",
-			(uint8_t)(reflash_hcd->read.buf[0]),
-			(uint8_t)(reflash_hcd->read.buf[1]),
-			(uint8_t)(reflash_hcd->read.buf[2]),
-			(uint8_t)(reflash_hcd->read.buf[3]),
-			(uint8_t)(reflash_hcd->read.buf[4]),
-			(uint8_t)(reflash_hcd->read.buf[5]),
-			(uint8_t)(reflash_hcd->read.buf[6]));
-	LOGV("get lockdown info : %s\n", buf);
-
-exit:
-	mutex_unlock(&reflash_hcd->reflash_mutex);
-	mutex_unlock(&tcm_hcd->extif_mutex);
-	LOG_DONE();
-	return 0;
-}
-
-
-#define LCT_SYNA_TP_LOCKDOWN_CALLBACK_RUN_ONLY_ONCE 1
-
-int lct_syna_tp_callback(const char *cmd)
-{
-#if LCT_SYNA_TP_LOCKDOWN_CALLBACK_RUN_ONLY_ONCE
-	static bool run_only_once_flag;
-#endif
-	int retval;
-	char tp_lockdown_info_buf[SYNA_TP_INFO_SIZE];
-	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
-
-	LOG_ENTRY();
-
-#if LCT_SYNA_TP_LOCKDOWN_CALLBACK_RUN_ONLY_ONCE
-	if (run_only_once_flag) return 0;
-#endif
-	if (strcmp(cmd, TP_CALLBACK_CMD_LOCKDOWN))
-		return 0;
-	memset(tp_lockdown_info_buf, 0, sizeof(tp_lockdown_info_buf));
-	retval = lct_syna_tp_lockdown_info_update(tp_lockdown_info_buf, tcm_hcd);
-	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent, "failed to get tp lockdown info!\n");
-		return retval;
-	}
-	update_lct_tp_info(NULL, tp_lockdown_info_buf);
-#if LCT_SYNA_TP_LOCKDOWN_CALLBACK_RUN_ONLY_ONCE
-	run_only_once_flag = true;
-#endif
-
-	LOG_DONE();
-	return 0;
-}
-
-static int lct_syna_tp_node_init(struct syna_tcm_hcd *tcm_hcd)
-{
-	int retval;
-	char tp_info_buf[SYNA_TP_INFO_SIZE];
-
-	LOG_ENTRY();
-
-	memset(tp_info_buf, 0, sizeof(tp_info_buf));
-	sprintf(tp_info_buf, "[Vendor]boe,[FW]0x%c%c,[IC]td4320\n",
-			tcm_hcd->app_info.customer_config_id[14],
-			tcm_hcd->app_info.customer_config_id[15]);
-	retval = init_lct_tp_info(tp_info_buf, NULL);
-	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent, "init_lct_tp_info is failed!\n");
-		return -EPERM;
-	}
-	retval = lct_syna_tp_callback(TP_CALLBACK_CMD_LOCKDOWN);
-	if (retval) {
-		LOGV("ERROR : lct_syna_tp_callback failed!\n");
-	}
-	set_lct_tp_info_callback(lct_syna_tp_callback);
-	LOG_DONE();
-	return 0;
-}
-/* add tp vendor information by wanghan end */
 
 #ifdef STARTUP_REFLASH
 static void reflash_startup_work(struct work_struct *work)
 {
 	int retval;
-
-
-
+#if defined(CONFIG_DRM) || defined(CONFIG_FB)
+	unsigned int timeout;
+#endif
 	struct syna_tcm_hcd *tcm_hcd = reflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
-	/* add tp vendor information by wanghan add */
-	retval = lct_syna_tp_node_init(tcm_hcd);
-	if (retval < 0){
-		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to initializing tp_info & tp_lockdown_info node\n");
+#if defined(CONFIG_DRM) || defined(CONFIG_FB)
+	timeout = FB_READY_TIMEOUT_S * 1000 / FB_READY_WAIT_MS;
+
+	while (tcm_hcd->fb_ready != FB_READY_COUNT - 1) {
+		if (timeout == 0) {
+			LOGE(tcm_hcd->pdev->dev.parent,
+					"Timed out waiting for FB ready\n");
+			return;
+		}
+		msleep(FB_READY_WAIT_MS);
+		timeout--;
 	}
-	/* add tp vendor information by wanghan end */
-
-#ifdef CONFIG_KERNEL_CUSTOM_FACTORY
-	LOGV("Close the TP FW upgrade feature in longcheer factory version\n");
-	return;
 #endif
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 	pm_stay_awake(&tcm_hcd->pdev->dev);
 
 	mutex_lock(&reflash_hcd->reflash_mutex);
-
-	tcm_hcd->upgrading = true;
 
 	retval = reflash_do_reflash();
 	if (retval < 0) {
@@ -2185,14 +1975,9 @@ static void reflash_startup_work(struct work_struct *work)
 				"Failed to do reflash\n");
 	}
 
-	tcm_hcd->upgrading = false;
-
 	mutex_unlock(&reflash_hcd->reflash_mutex);
 
 	pm_relax(&tcm_hcd->pdev->dev);
-
-	LOG_DONE();
-	return;
 }
 #endif
 
@@ -2201,7 +1986,6 @@ static int reflash_init(struct syna_tcm_hcd *tcm_hcd)
 	int retval;
 	int idx;
 
-	LOG_ENTRY();
 	reflash_hcd = kzalloc(sizeof(*reflash_hcd), GFP_KERNEL);
 	if (!reflash_hcd) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -2212,7 +1996,7 @@ static int reflash_init(struct syna_tcm_hcd *tcm_hcd)
 	reflash_hcd->image_buf = kzalloc(IMAGE_BUF_SIZE, GFP_KERNEL);
 	if (!reflash_hcd->image_buf) {
 		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to allocate memory for reflash_hcd->image_buf\n");
+			"Failed to allocate memory for image_buf\n");
 		goto err_allocate_memory;
 	}
 
@@ -2228,12 +2012,12 @@ static int reflash_init(struct syna_tcm_hcd *tcm_hcd)
 
 #ifdef STARTUP_REFLASH
 	reflash_hcd->workqueue =
-		create_singlethread_workqueue("syna_tcm_reflash");
+			create_singlethread_workqueue("syna_tcm_reflash");
 	INIT_WORK(&reflash_hcd->work, reflash_startup_work);
 	queue_work(reflash_hcd->workqueue, &reflash_hcd->work);
 #endif
 
-	if (ENABLE_SYSFS_INTERFACE == false)
+	if (!ENABLE_SYSFS_INTERFACE)
 		return 0;
 
 	reflash_hcd->sysfs_dir = kobject_create_and_add(SYSFS_DIR_NAME,
@@ -2283,7 +2067,6 @@ static int reflash_init(struct syna_tcm_hcd *tcm_hcd)
 
 	tcm_hcd->read_flash_data = reflash_read_data;
 
-	LOG_DONE();
 	return 0;
 
 err_custom_sysfs_create_bin_file:
@@ -2315,7 +2098,6 @@ err_allocate_memory:
 	kfree(reflash_hcd);
 	reflash_hcd = NULL;
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -2323,13 +2105,12 @@ static int reflash_remove(struct syna_tcm_hcd *tcm_hcd)
 {
 	int idx;
 
-	LOG_ENTRY();
 	if (!reflash_hcd)
 		goto exit;
 
 	tcm_hcd->read_flash_data = NULL;
 
-	if (ENABLE_SYSFS_INTERFACE == true) {
+	if (ENABLE_SYSFS_INTERFACE) {
 		for (idx = 1; idx < ARRAY_SIZE(bin_attrs); idx++) {
 			sysfs_remove_bin_file(reflash_hcd->custom_dir,
 					&bin_attrs[idx]);
@@ -2365,7 +2146,6 @@ static int reflash_remove(struct syna_tcm_hcd *tcm_hcd)
 exit:
 	complete(&reflash_remove_complete);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -2373,13 +2153,11 @@ static int reflash_reset(struct syna_tcm_hcd *tcm_hcd)
 {
 	int retval;
 
-	LOG_ENTRY();
 	if (!reflash_hcd) {
 		retval = reflash_init(tcm_hcd);
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -2397,27 +2175,14 @@ static struct syna_tcm_module_cb reflash_module = {
 
 static int __init reflash_module_init(void)
 {
-	int retval;
-	LOG_ENTRY();
-	if (!lct_syna_verify_flag)
-		return -ENODEV;
-	LOGV("__init reflash module\n");
-	retval = syna_tcm_add_module(&reflash_module, true);
-	if (retval < 0)
-		LOGV("syna_tcm_add_module failed! retval = %d\n", retval);
-	LOG_DONE();
-	return retval;
+	return syna_tcm_add_module(&reflash_module, true);
 }
 
 static void __exit reflash_module_exit(void)
 {
-	LOG_ENTRY();
 	syna_tcm_add_module(&reflash_module, false);
 
 	wait_for_completion(&reflash_remove_complete);
-
-	LOG_DONE();
-	return;
 }
 
 module_init(reflash_module_init);

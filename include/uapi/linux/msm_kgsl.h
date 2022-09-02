@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+/*
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ */
+
 #ifndef _UAPI_MSM_KGSL_H
 #define _UAPI_MSM_KGSL_H
 
@@ -65,6 +70,7 @@
 #define KGSL_CONTEXT_TYPE_CL		2
 #define KGSL_CONTEXT_TYPE_C2D		3
 #define KGSL_CONTEXT_TYPE_RS		4
+#define KGSL_CONTEXT_TYPE_VK		5
 #define KGSL_CONTEXT_TYPE_UNKNOWN	0x1E
 
 #define KGSL_CONTEXT_INVALIDATE_ON_FAULT 0x10000000
@@ -142,6 +148,7 @@
 #define KGSL_MEMFLAGS_USE_CPU_MAP 0x10000000ULL
 #define KGSL_MEMFLAGS_SPARSE_PHYS 0x20000000ULL
 #define KGSL_MEMFLAGS_SPARSE_VIRT 0x40000000ULL
+#define KGSL_MEMFLAGS_IOCOHERENT  0x80000000ULL
 
 /* Memory types for which allocations are made */
 #define KGSL_MEMTYPE_MASK		0x0000FF00
@@ -183,7 +190,7 @@ enum kgsl_user_mem_type {
 	KGSL_USER_MEM_TYPE_ADDR		= 0x00000002,
 	KGSL_USER_MEM_TYPE_ION		= 0x00000003,
 	/*
-	 * ION type is retained for backwards compatibilty but Ion buffers are
+	 * ION type is retained for backwards compatibility but Ion buffers are
 	 * dma-bufs so try to use that naming if we can
 	 */
 	KGSL_USER_MEM_TYPE_DMABUF       = 0x00000003,
@@ -224,6 +231,13 @@ enum kgsl_user_mem_type {
 /* Server Side Sync Timeout in milliseconds */
 #define KGSL_SYNCOBJ_SERVER_TIMEOUT 2000
 
+/* UBWC Modes */
+#define KGSL_UBWC_NONE	0
+#define KGSL_UBWC_1_0	1
+#define KGSL_UBWC_2_0	2
+#define KGSL_UBWC_3_0	3
+#define KGSL_UBWC_4_0	4
+
 /*
  * Reset status values for context
  */
@@ -237,25 +251,20 @@ enum kgsl_ctx_reset_stat {
 #define KGSL_CONVERT_TO_MBPS(val) \
 	(val*1000*1000U)
 
-/* device id */
-enum kgsl_deviceid {
-	KGSL_DEVICE_3D0		= 0x00000000,
-	KGSL_DEVICE_MAX
-};
-
 struct kgsl_devinfo {
 
 	unsigned int device_id;
-	/* chip revision id
-	* coreid:8 majorrev:8 minorrev:8 patch:8
-	*/
+	/*
+	 * chip revision id
+	 * coreid:8 majorrev:8 minorrev:8 patch:8
+	 */
 	unsigned int chip_id;
 	unsigned int mmu_enabled;
 	unsigned long gmem_gpubaseaddr;
 	/*
-	* This field contains the adreno revision
-	* number 200, 205, 220, etc...
-	*/
+	 * This field contains the adreno revision
+	 * number 200, 205, 220, etc...
+	 */
 	unsigned int gpu_id;
 	size_t gmem_sizebytes;
 };
@@ -320,8 +329,46 @@ enum kgsl_timestamp_type {
 #define KGSL_PROP_HIGHEST_BANK_BIT	0x17
 #define KGSL_PROP_DEVICE_BITNESS	0x18
 #define KGSL_PROP_DEVICE_QDSS_STM	0x19
-#define KGSL_PROP_DEVICE_QTIMER	0x20
-#define KGSL_PROP_IB_TIMEOUT 0x21
+#define KGSL_PROP_MIN_ACCESS_LENGTH	0x1A
+#define KGSL_PROP_UBWC_MODE		0x1B
+#define KGSL_PROP_DEVICE_QTIMER		0x20
+#define KGSL_PROP_L3_PWR_CONSTRAINT     0x22
+#define KGSL_PROP_SECURE_BUFFER_ALIGNMENT 0x23
+#define KGSL_PROP_SECURE_CTXT_SUPPORT 0x24
+#define KGSL_PROP_SPEED_BIN		0x25
+#define KGSL_PROP_GAMING_BIN		0x26
+#define KGSL_PROP_QUERY_CAPABILITIES	0x27
+#define KGSL_PROP_CONTEXT_PROPERTY	0x28
+
+/*
+ * kgsl_capabilties_properties returns a list of supported properties.
+ * If the user passes 0 for 'count' the kernel will set it to the number of
+ * supported properties. The list is expected to be 'count * sizeof(uint32_t)'
+ * bytes long. The kernel will return the actual number of entries copied into
+ * list via 'count'.
+ */
+struct kgsl_capabilities_properties {
+	__u64 list;
+	__u32 count;
+};
+
+/*
+ * KGSL_QUERY_CAPS_PROPERTIES returns a list of the valid properties in the
+ * kernel.  The subtype data should be struct kgsl_capabilities_properties
+ */
+#define KGSL_QUERY_CAPS_PROPERTIES 1
+
+/*
+ * kgsl_capabilities allows the user to query kernel capabiilties. The 'data'
+ * type should be set appropriately for the querytype (see above). Pass 0 to
+ * 'size' and the kernel will set it to the expected size of 'data' that is
+ * appropriate for querytype (in bytes).
+ */
+struct kgsl_capabilities {
+	__u64 data;
+	__u64 size;
+	__u32 querytype;
+};
 
 struct kgsl_shadowprop {
 	unsigned long gpuaddr;
@@ -362,6 +409,21 @@ struct kgsl_gpmu_version {
 	unsigned int features;
 };
 
+struct kgsl_context_property {
+	__u64 data;
+	__u32 size;
+	__u32 type;
+	__u32 contextid;
+};
+
+struct kgsl_context_property_fault {
+	__s32 faults;
+	__u32 timestamp;
+};
+
+/* Context property sub types */
+#define KGSL_CONTEXT_PROP_FAULTS 1
+
 /* Performance counter groups */
 
 #define KGSL_PERFCOUNTER_GROUP_CP 0x0
@@ -400,7 +462,10 @@ struct kgsl_gpmu_version {
 #define KGSL_PERFCOUNTER_GROUP_CP_PWR 0x21
 #define KGSL_PERFCOUNTER_GROUP_GPMU_PWR 0x22
 #define KGSL_PERFCOUNTER_GROUP_ALWAYSON_PWR 0x23
-#define KGSL_PERFCOUNTER_GROUP_MAX 0x24
+#define KGSL_PERFCOUNTER_GROUP_GLC 0x24
+#define KGSL_PERFCOUNTER_GROUP_FCHE 0x25
+#define KGSL_PERFCOUNTER_GROUP_MHUB 0x26
+#define KGSL_PERFCOUNTER_GROUP_MAX 0x27
 
 #define KGSL_PERFCOUNTER_NOT_USED 0xFFFFFFFF
 #define KGSL_PERFCOUNTER_BROKEN 0xFFFFFFFE
@@ -439,16 +504,17 @@ struct kgsl_cmdbatch_profiling_buffer {
 /* ioctls */
 #define KGSL_IOC_TYPE 0x09
 
-/* get misc info about the GPU
-   type should be a value from enum kgsl_property_type
-   value points to a structure that varies based on type
-   sizebytes is sizeof() that structure
-   for KGSL_PROP_DEVICE_INFO, use struct kgsl_devinfo
-   this structure contaings hardware versioning info.
-   for KGSL_PROP_DEVICE_SHADOW, use struct kgsl_shadowprop
-   this is used to find mmap() offset and sizes for mapping
-   struct kgsl_memstore into userspace.
-*/
+/*
+ * get misc info about the GPU
+ * type should be a value from enum kgsl_property_type
+ * value points to a structure that varies based on type
+ * sizebytes is sizeof() that structure
+ * for KGSL_PROP_DEVICE_INFO, use struct kgsl_devinfo
+ * this structure contaings hardware versioning info.
+ * for KGSL_PROP_DEVICE_SHADOW, use struct kgsl_shadowprop
+ * this is used to find mmap() offset and sizes for mapping
+ * struct kgsl_memstore into userspace.
+ */
 struct kgsl_device_getproperty {
 	unsigned int type;
 	void __user *value;
@@ -490,7 +556,7 @@ struct kgsl_device_waittimestamp_ctxtid {
  * other ioctls to determine when the commands have been executed by
  * the GPU.
  *
- * This fucntion is deprecated - consider using IOCTL_KGSL_SUBMIT_COMMANDS
+ * This function is deprecated - consider using IOCTL_KGSL_SUBMIT_COMMANDS
  * instead
  */
 struct kgsl_ringbuffer_issueibcmds {
@@ -532,11 +598,12 @@ struct kgsl_cmdstream_freememontimestamp {
 #define IOCTL_KGSL_CMDSTREAM_FREEMEMONTIMESTAMP \
 	_IOW(KGSL_IOC_TYPE, 0x12, struct kgsl_cmdstream_freememontimestamp)
 
-/* Previous versions of this header had incorrectly defined
-   IOCTL_KGSL_CMDSTREAM_FREEMEMONTIMESTAMP as a read-only ioctl instead
-   of a write only ioctl.  To ensure binary compatability, the following
-   #define will be used to intercept the incorrect ioctl
-*/
+/*
+ * Previous versions of this header had incorrectly defined
+ * IOCTL_KGSL_CMDSTREAM_FREEMEMONTIMESTAMP as a read-only ioctl instead
+ * of a write only ioctl.  To ensure binary compatibility, the following
+ * #define will be used to intercept the incorrect ioctl
+ */
 
 #define IOCTL_KGSL_CMDSTREAM_FREEMEMONTIMESTAMP_OLD \
 	_IOR(KGSL_IOC_TYPE, 0x12, struct kgsl_cmdstream_freememontimestamp)
@@ -560,8 +627,10 @@ struct kgsl_drawctxt_destroy {
 #define IOCTL_KGSL_DRAWCTXT_DESTROY \
 	_IOW(KGSL_IOC_TYPE, 0x14, struct kgsl_drawctxt_destroy)
 
-/* add a block of pmem, fb, ashmem or user allocated address
- * into the GPU address space */
+/*
+ * add a block of pmem, fb, ashmem or user allocated address
+ * into the GPU address space
+ */
 struct kgsl_map_user_mem {
 	int fd;
 	unsigned long gpuaddr;   /*output param */
@@ -597,14 +666,14 @@ struct kgsl_cmdstream_freememontimestamp_ctxtid {
 
 /* add a block of pmem or fb into the GPU address space */
 struct kgsl_sharedmem_from_pmem {
-        int pmem_fd;
-        unsigned long gpuaddr;  /*output param */
-        unsigned int len;
-        unsigned int offset;
+	int pmem_fd;
+	unsigned long gpuaddr;  /*output param */
+	unsigned int len;
+	unsigned int offset;
 };
 
 #define IOCTL_KGSL_SHAREDMEM_FROM_PMEM \
-        _IOWR(KGSL_IOC_TYPE, 0x20, struct kgsl_sharedmem_from_pmem)
+	_IOWR(KGSL_IOC_TYPE, 0x20, struct kgsl_sharedmem_from_pmem)
 
 /* remove memory from the GPU's address space */
 struct kgsl_sharedmem_free {
@@ -636,12 +705,12 @@ struct kgsl_gmem_desc {
 };
 
 struct kgsl_buffer_desc {
-	void 			*hostptr;
+	void		*hostptr;
 	unsigned long	gpuaddr;
-	int				size;
+	int		size;
 	unsigned int	format;
-	unsigned int  	pitch;
-	unsigned int  	enabled;
+	unsigned int	pitch;
+	unsigned int	enabled;
 };
 
 struct kgsl_bind_gmem_shadow {
@@ -654,7 +723,7 @@ struct kgsl_bind_gmem_shadow {
 };
 
 #define IOCTL_KGSL_DRAWCTXT_BIND_GMEM_SHADOW \
-    _IOW(KGSL_IOC_TYPE, 0x22, struct kgsl_bind_gmem_shadow)
+	_IOW(KGSL_IOC_TYPE, 0x22, struct kgsl_bind_gmem_shadow)
 
 /* add a block of memory into the GPU address space */
 
@@ -1106,6 +1175,10 @@ struct kgsl_device_constraint {
 #define KGSL_CONSTRAINT_NONE 0
 #define KGSL_CONSTRAINT_PWRLEVEL 1
 
+/* L3 constraint Type */
+#define KGSL_CONSTRAINT_L3_NONE	2
+#define KGSL_CONSTRAINT_L3_PWRLEVEL	3
+
 /* PWRLEVEL constraint level*/
 /* set to min frequency */
 #define KGSL_CONSTRAINT_PWR_MIN    0
@@ -1452,7 +1525,7 @@ struct kgsl_preemption_counters_query {
 
 /**
  * struct kgsl_gpuobj_set_info - argument for IOCTL_KGSL_GPUOBJ_SET_INFO
- * @flags: Flags to indicate which paramaters to change
+ * @flags: Flags to indicate which parameters to change
  * @metadata:  If KGSL_GPUOBJ_SET_INFO_METADATA is set, a pointer to the new
  * metadata
  * @id: GPU memory object ID to change

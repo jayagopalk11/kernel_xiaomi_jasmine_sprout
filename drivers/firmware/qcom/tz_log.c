@@ -1,14 +1,6 @@
-/* Copyright (c) 2011-2015,2017 The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 #include <linux/debugfs.h>
 #include <linux/errno.h>
@@ -23,9 +15,12 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/of.h>
+#include <linux/dma-buf.h>
+#include <linux/ion_kernel.h>
 
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qseecomi.h>
+#include <soc/qcom/qtee_shmbridge.h>
 
 /* QSEE_LOG_BUF_SIZE = 32K */
 #define QSEE_LOG_BUF_SIZE 0x8000
@@ -102,7 +97,7 @@ struct tzdbg_boot_info64_t {
  */
 struct tzdbg_reset_info_t {
 	uint32_t reset_type;	/* Reset Reason */
-	uint32_t reset_cnt;	/* Number of resets occured/CPU */
+	uint32_t reset_cnt;	/* Number of resets occurred/CPU */
 };
 /*
  * Interrupt Info Table
@@ -163,8 +158,8 @@ struct tzdbg_log_pos_t {
 };
 
  /*
- * Log ring buffer
- */
+  * Log ring buffer
+  */
 struct tzdbg_log_t {
 	struct tzdbg_log_pos_t	log_pos;
 	/* open ended array to the end of the 4K IMEM buffer */
@@ -323,7 +318,9 @@ static struct tzdbg tzdbg = {
 };
 
 static struct tzdbg_log_t *g_qsee_log;
+static dma_addr_t coh_pmem;
 static uint32_t debug_rw_buf_size;
+static uint64_t qseelog_shmbridge_handle;
 
 /*
  * Debugfs data structure and functions
@@ -606,6 +603,7 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 		 * so we'll hang around until something happens
 		 */
 		unsigned long t = msleep_interruptible(50);
+
 		if (t != 0) {
 			/* Some event woke us up, so let's quit */
 			return 0;
@@ -625,7 +623,7 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 	while ((log_start->offset != log->log_pos.offset) && (len < max_len)) {
 		tzdbg.disp_buf[i++] = log->log_buf[log_start->offset];
 		log_start->offset = (log_start->offset + 1) % log_len;
-		if (0 == log_start->offset)
+		if (log_start->offset == 0)
 			++log_start->wrap;
 		++len;
 	}
@@ -697,7 +695,7 @@ static int __disp_hyp_log_stats(uint8_t *log,
 	while ((log_start->offset != hyp->log_pos.offset) && (len < max_len)) {
 		tzdbg.disp_buf[i++] = log[log_start->offset];
 		log_start->offset = (log_start->offset + 1) % log_len;
-		if (0 == log_start->offset)
+		if (log_start->offset == 0)
 			++log_start->wrap;
 		++len;
 	}
@@ -713,6 +711,7 @@ static int _disp_tz_log_stats(size_t count)
 {
 	static struct tzdbg_log_pos_t log_start = {0};
 	struct tzdbg_log_t *log_ptr;
+
 	log_ptr = (struct tzdbg_log_t *)((unsigned char *)tzdbg.diag_buf +
 				tzdbg.diag_buf->ring_off -
 				offsetof(struct tzdbg_log_t, log_buf));
@@ -725,12 +724,14 @@ static int _disp_hyp_log_stats(size_t count)
 {
 	static struct hypdbg_log_pos_t log_start = {0};
 	uint8_t *log_ptr;
+	uint32_t log_len;
 
 	log_ptr = (uint8_t *)((unsigned char *)tzdbg.hyp_diag_buf +
 				tzdbg.hyp_diag_buf->ring_off);
+	log_len = tzdbg.hyp_debug_rw_buf_size - tzdbg.hyp_diag_buf->ring_off;
 
 	return __disp_hyp_log_stats(log_ptr, &log_start,
-			tzdbg.hyp_debug_rw_buf_size, count, TZDBG_HYP_LOG);
+			log_len, count, TZDBG_HYP_LOG);
 }
 
 static int _disp_qsee_log_stats(size_t count)
@@ -841,105 +842,59 @@ static ssize_t tzdbgfs_read(struct file *file, char __user *buf,
 				tzdbg.stat[(*tz_id)].data, len);
 }
 
-static int tzdbgfs_open(struct inode *inode, struct file *pfile)
-{
-	pfile->private_data = inode->i_private;
-	return 0;
-}
-
-const struct file_operations tzdbg_fops = {
+static const struct file_operations tzdbg_fops = {
 	.owner   = THIS_MODULE,
 	.read    = tzdbgfs_read,
-	.open    = tzdbgfs_open,
+	.open    = simple_open,
 };
 
-static struct ion_client  *g_ion_clnt;
-static struct ion_handle *g_ihandle;
 
 /*
  * Allocates log buffer from ION, registers the buffer at TZ
  */
-static void tzdbg_register_qsee_log_buf(void)
+static void tzdbg_register_qsee_log_buf(struct platform_device *pdev)
 {
-	/* register log buffer scm request */
-	struct qseecom_reg_log_buf_ireq req;
-
-	/* scm response */
-	struct qseecom_command_scm_resp resp = {};
-	ion_phys_addr_t pa = 0;
-	size_t len;
+	size_t len = QSEE_LOG_BUF_SIZE;
 	int ret = 0;
+	struct scm_desc desc = {0};
+	void *buf = NULL;
+	uint32_t ns_vmids[] = {VMID_HLOS};
+	uint32_t ns_vm_perms[] = {PERM_READ | PERM_WRITE};
+	uint32_t ns_vm_nums = 1;
 
-	/* Create ION msm client */
-	g_ion_clnt = msm_ion_client_create("qsee_log");
-	if (g_ion_clnt == NULL) {
-		pr_err("%s: Ion client cannot be created\n", __func__);
+	buf = dma_alloc_coherent(&pdev->dev, len, &coh_pmem, GFP_KERNEL);
+	if (buf == NULL) {
+		pr_err("Failed to alloc memory for size %zu\n", len);
+		return;
+	}
+	ret = qtee_shmbridge_register(coh_pmem,
+			len, ns_vmids, ns_vm_perms, ns_vm_nums,
+			PERM_READ | PERM_WRITE, &qseelog_shmbridge_handle);
+	if (ret) {
+		pr_err("failed to create bridge for qsee_log buffer\n");
+		dma_free_coherent(&pdev->dev, len, (void *)g_qsee_log,
+						coh_pmem);
 		return;
 	}
 
-	g_ihandle = ion_alloc(g_ion_clnt, QSEE_LOG_BUF_SIZE,
-			4096, ION_HEAP(ION_QSECOM_HEAP_ID), 0);
-	if (IS_ERR_OR_NULL(g_ihandle)) {
-		pr_err("%s: Ion client could not retrieve the handle\n",
-			__func__);
-		goto err1;
-	}
-
-	ret = ion_phys(g_ion_clnt, g_ihandle, &pa, &len);
-	if (ret) {
-		pr_err("%s: Ion conversion to physical address failed\n",
-			__func__);
-		goto err2;
-	}
-
-	req.qsee_cmd_id = QSEOS_REGISTER_LOG_BUF_COMMAND;
-	req.phy_addr = (uint32_t)pa;
-	req.len = len;
-
-	if (!is_scm_armv8()) {
-		/*  SCM_CALL  to register the log buffer */
-		ret = scm_call(SCM_SVC_TZSCHEDULER, 1,  &req, sizeof(req),
-			&resp, sizeof(resp));
-	} else {
-		struct scm_desc desc = {0};
-		desc.args[0] = pa;
-		desc.args[1] = len;
-		desc.arginfo = 0x22;
-		ret = scm_call2(SCM_QSEEOS_FNID(1, 6), &desc);
-		resp.result = desc.ret[0];
-	}
-
-	if (ret) {
-		pr_err("%s: scm_call to register log buffer failed\n",
-			__func__);
-		goto err2;
-	}
-
-	if (resp.result != QSEOS_RESULT_SUCCESS) {
+	g_qsee_log = (struct tzdbg_log_t *)buf;
+	desc.args[0] = coh_pmem;
+	desc.args[1] = len;
+	desc.arginfo = 0x22;
+	ret = scm_call2(SCM_QSEEOS_FNID(1, 6), &desc);
+	if (ret || desc.ret[0] != QSEOS_RESULT_SUCCESS) {
 		pr_err(
-		"%s: scm_call to register log buf failed, resp result =%d\n",
-		__func__, resp.result);
-		goto err2;
-	}
-
-	g_qsee_log =
-		(struct tzdbg_log_t *)ion_map_kernel(g_ion_clnt, g_ihandle);
-
-	if (IS_ERR(g_qsee_log)) {
-		pr_err("%s: Couldn't map ion buffer to kernel\n",
-			__func__);
-		goto err2;
+		"%s: scm_call to register log buf failed, ret = %d, resp result =%lld\n",
+		__func__, ret, desc.ret[0]);
+		goto err;
 	}
 
 	g_qsee_log->log_pos.wrap = g_qsee_log->log_pos.offset = 0;
 	return;
 
-err2:
-	ion_free(g_ion_clnt, g_ihandle);
-	g_ihandle = NULL;
-err1:
-	ion_client_destroy(g_ion_clnt);
-	g_ion_clnt = NULL;
+err:
+	qtee_shmbridge_deregister(qseelog_shmbridge_handle);
+	dma_free_coherent(&pdev->dev, len, (void *)g_qsee_log, coh_pmem);
 }
 
 static int  tzdbgfs_init(struct platform_device *pdev)
@@ -957,8 +912,8 @@ static int  tzdbgfs_init(struct platform_device *pdev)
 
 	for (i = 0; i < TZDBG_STATS_MAX; i++) {
 		tzdbg.debug_tz[i] = i;
-		dent = debugfs_create_file(tzdbg.stat[i].name,
-				S_IRUGO, dent_dir,
+		dent = debugfs_create_file_unsafe(tzdbg.stat[i].name,
+				0444, dent_dir,
 				&tzdbg.debug_tz[i], &tzdbg_fops);
 		if (dent == NULL) {
 			dev_err(&pdev->dev, "TZ debugfs_create_file failed\n");
@@ -968,12 +923,8 @@ static int  tzdbgfs_init(struct platform_device *pdev)
 	}
 	tzdbg.disp_buf = kzalloc(max(debug_rw_buf_size,
 			tzdbg.hyp_debug_rw_buf_size), GFP_KERNEL);
-	if (tzdbg.disp_buf == NULL) {
-		pr_err("%s: Can't Allocate memory for tzdbg.disp_buf\n",
-			__func__);
-
+	if (tzdbg.disp_buf == NULL)
 		goto err;
-	}
 	platform_set_drvdata(pdev, dent_dir);
 	return 0;
 err:
@@ -986,16 +937,14 @@ static void tzdbgfs_exit(struct platform_device *pdev)
 {
 	struct dentry           *dent_dir;
 
+	if (g_qsee_log) {
+		qtee_shmbridge_deregister(qseelog_shmbridge_handle);
+		dma_free_coherent(&pdev->dev, QSEE_LOG_BUF_SIZE,
+					 (void *)g_qsee_log, coh_pmem);
+	}
 	kzfree(tzdbg.disp_buf);
 	dent_dir = platform_get_drvdata(pdev);
 	debugfs_remove_recursive(dent_dir);
-	if (g_ion_clnt != NULL) {
-		if (!IS_ERR_OR_NULL(g_ihandle)) {
-			ion_unmap_kernel(g_ion_clnt, g_ihandle);
-			ion_free(g_ion_clnt, g_ihandle);
-		}
-		ion_client_destroy(g_ion_clnt);
-	}
 }
 
 static int __update_hypdbg_base(struct platform_device *pdev,
@@ -1045,26 +994,19 @@ static void tzdbg_get_tz_version(void)
 {
 	uint32_t smc_id = 0;
 	uint32_t feature = 10;
-	struct qseecom_command_scm_resp resp = {0};
 	struct scm_desc desc = {0};
 	int ret = 0;
 
-	if (!is_scm_armv8()) {
-		ret = scm_call(SCM_SVC_INFO, SCM_SVC_UTIL,  &feature,
-					sizeof(feature), &resp, sizeof(resp));
-	} else {
-		smc_id = TZ_INFO_GET_FEATURE_VERSION_ID;
-		desc.arginfo = TZ_INFO_GET_FEATURE_VERSION_ID_PARAM_ID;
-		desc.args[0] = feature;
-		ret = scm_call2(smc_id, &desc);
-		resp.result = desc.ret[0];
-	}
+	smc_id = TZ_INFO_GET_FEATURE_VERSION_ID;
+	desc.arginfo = TZ_INFO_GET_FEATURE_VERSION_ID_PARAM_ID;
+	desc.args[0] = feature;
+	ret = scm_call2(smc_id, &desc);
 
 	if (ret)
 		pr_err("%s: scm_call to get tz version failed\n",
 				__func__);
 	else
-		tzdbg.tz_version = resp.result;
+		tzdbg.tz_version = desc.ret[0];
 
 }
 
@@ -1087,12 +1029,12 @@ static int tz_log_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev,
 				"%s: ERROR Missing MEM resource\n", __func__);
 		return -ENXIO;
-	};
+	}
 
 	/*
 	 * Get the debug buffer size
 	 */
-	debug_rw_buf_size = resource->end - resource->start + 1;
+	debug_rw_buf_size = resource_size(resource);
 
 	/*
 	 * Map address that stores the physical location diagnostic data
@@ -1144,18 +1086,15 @@ static int tz_log_probe(struct platform_device *pdev)
 	}
 
 	ptr = kzalloc(debug_rw_buf_size, GFP_KERNEL);
-	if (ptr == NULL) {
-		pr_err("%s: Can't Allocate memory: ptr\n",
-			__func__);
+	if (ptr == NULL)
 		return -ENXIO;
-	}
 
 	tzdbg.diag_buf = (struct tzdbg_t *)ptr;
 
 	if (tzdbgfs_init(pdev))
 		goto err;
 
-	tzdbg_register_qsee_log_buf();
+	tzdbg_register_qsee_log_buf(pdev);
 
 	tzdbg_get_tz_version();
 
@@ -1169,14 +1108,13 @@ err:
 static int tz_log_remove(struct platform_device *pdev)
 {
 	kzfree(tzdbg.diag_buf);
-	if (tzdbg.hyp_diag_buf)
-		kzfree(tzdbg.hyp_diag_buf);
+	kzfree(tzdbg.hyp_diag_buf);
 	tzdbgfs_exit(pdev);
 
 	return 0;
 }
 
-static struct of_device_id tzlog_match[] = {
+static const struct of_device_id tzlog_match[] = {
 	{	.compatible = "qcom,tz-log",
 	},
 	{}
@@ -1187,7 +1125,6 @@ static struct platform_driver tz_log_driver = {
 	.remove		= tz_log_remove,
 	.driver		= {
 		.name = "tz_log",
-		.owner = THIS_MODULE,
 		.of_match_table = tzlog_match,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},

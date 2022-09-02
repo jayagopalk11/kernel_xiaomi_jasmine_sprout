@@ -1,4 +1,5 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,6 +36,7 @@
 #include "msm_isp44.h"
 #include "msm_isp40.h"
 #include "msm_isp32.h"
+#include "msm_cam_cx_ipeak.h"
 
 static struct msm_sd_req_vb2_q vfe_vb2_ops;
 static struct msm_isp_buf_mgr vfe_buf_mgr;
@@ -53,9 +55,7 @@ MODULE_DEVICE_TABLE(of, msm_vfe_dt_match);
 #define MAX_OVERFLOW_COUNTERS  29
 #define OVERFLOW_LENGTH 1024
 #define OVERFLOW_BUFFER_LENGTH 64
-
-struct msm_isp_statistics stats;
-struct msm_isp_ub_info ub_info;
+static char stat_line[OVERFLOW_LENGTH];
 
 static int msm_isp_enable_debugfs(struct vfe_device *vfe_dev,
 	  struct msm_isp_bw_req_info *isp_req_hist);
@@ -106,36 +106,19 @@ static char bw_request_history_buff[MAX_BW_HISTORY_BUFF_LEN];
 static char ub_info_buffer[MAX_UB_INFO_BUFF_LEN];
 static spinlock_t req_history_lock;
 
-static int vfe_debugfs_statistics_open(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-	return 0;
-}
-
 static ssize_t vfe_debugfs_statistics_read(struct file *t_file,
 	char __user *t_char, size_t t_size_t, loff_t *t_loff_t)
 {
 	int i;
-	size_t rc;
 	uint64_t *ptr;
 	char buffer[OVERFLOW_BUFFER_LENGTH] = {0};
-	char *stat_line;
 	struct vfe_device *vfe_dev = (struct vfe_device *)
 		t_file->private_data;
-	struct msm_isp_statistics *stats;
+	struct msm_isp_statistics *stats = vfe_dev->stats;
 
-	stat_line = kzalloc(OVERFLOW_LENGTH, GFP_KERNEL);
-	if (!stat_line)
-		return -ENOMEM;
-	spin_lock(&vfe_dev->common_data->common_dev_data_lock);
-	stats = vfe_dev->stats;
+	memset(stat_line, 0, sizeof(stat_line));
 	msm_isp_util_get_bandwidth_stats(vfe_dev, stats);
-	spin_unlock(&vfe_dev->common_data->common_dev_data_lock);
 	ptr = (uint64_t *)(stats);
-	if (MAX_OVERFLOW_COUNTERS > OVERFLOW_LENGTH) {
-		kfree(stat_line);
-		return -EINVAL;
-	}
 	for (i = 0; i < MAX_OVERFLOW_COUNTERS; i++) {
 		strlcat(stat_line, stats_str[i], sizeof(stat_line));
 		strlcat(stat_line, "     ", sizeof(stat_line));
@@ -143,34 +126,23 @@ static ssize_t vfe_debugfs_statistics_read(struct file *t_file,
 		strlcat(stat_line, buffer, sizeof(stat_line));
 		strlcat(stat_line, "\r\n", sizeof(stat_line));
 	}
-	rc = simple_read_from_buffer(t_char, t_size_t,
+	return simple_read_from_buffer(t_char, t_size_t,
 		t_loff_t, stat_line, strlen(stat_line));
-	kfree(stat_line);
-	return rc;
 }
 
 static ssize_t vfe_debugfs_statistics_write(struct file *t_file,
-	const char *t_char, size_t t_size_t, loff_t *t_loff_t)
+	const char __user *t_char, size_t t_size_t, loff_t *t_loff_t)
 {
 	struct vfe_device *vfe_dev = (struct vfe_device *)
 		t_file->private_data;
-	struct msm_isp_statistics *stats;
+	struct msm_isp_statistics *stats = vfe_dev->stats;
 
-	spin_lock(&vfe_dev->common_data->common_dev_data_lock);
-	stats = vfe_dev->stats;
 	memset(stats, 0, sizeof(struct msm_isp_statistics));
-	spin_unlock(&vfe_dev->common_data->common_dev_data_lock);
 
 	return sizeof(struct msm_isp_statistics);
 }
 
-static int bw_history_open(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-	return 0;
-}
-
-static ssize_t bw_history_read(struct file *t_file, char *t_char,
+static ssize_t bw_history_read(struct file *t_file, char __user *t_char,
 	size_t t_size_t, loff_t *t_loff_t)
 {
 	int i;
@@ -215,7 +187,7 @@ static ssize_t bw_history_read(struct file *t_file, char *t_char,
 }
 
 static ssize_t bw_history_write(struct file *t_file,
-	const char *t_char, size_t t_size_t, loff_t *t_loff_t)
+	const char __user *t_char, size_t t_size_t, loff_t *t_loff_t)
 {
 	struct msm_isp_bw_req_info *isp_req_hist =
 		(struct msm_isp_bw_req_info *) t_file->private_data;
@@ -225,13 +197,7 @@ static ssize_t bw_history_write(struct file *t_file,
 	return sizeof(msm_isp_bw_request_history);
 }
 
-static int ub_info_open(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-	return 0;
-}
-
-static ssize_t ub_info_read(struct file *t_file, char *t_char,
+static ssize_t ub_info_read(struct file *t_file, char __user *t_char,
 	size_t t_size_t, loff_t *t_loff_t)
 {
 	int i;
@@ -262,7 +228,7 @@ static ssize_t ub_info_read(struct file *t_file, char *t_char,
 }
 
 static ssize_t ub_info_write(struct file *t_file,
-	const char *t_char, size_t t_size_t, loff_t *t_loff_t)
+	const char __user *t_char, size_t t_size_t, loff_t *t_loff_t)
 {
 	struct vfe_device *vfe_dev =
 		(struct vfe_device *) t_file->private_data;
@@ -274,19 +240,19 @@ static ssize_t ub_info_write(struct file *t_file,
 }
 
 static const struct file_operations vfe_debugfs_error = {
-	.open = vfe_debugfs_statistics_open,
+	.open = simple_open,
 	.read = vfe_debugfs_statistics_read,
 	.write = vfe_debugfs_statistics_write,
 };
 
 static const struct file_operations bw_history_ops = {
-	.open = bw_history_open,
+	.open = simple_open,
 	.read = bw_history_read,
 	.write = bw_history_write,
 };
 
 static const struct file_operations ub_info_ops = {
-	.open = ub_info_open,
+	.open = simple_open,
 	.read = ub_info_read,
 	.write = ub_info_write,
 };
@@ -301,15 +267,15 @@ static int msm_isp_enable_debugfs(struct vfe_device *vfe_dev,
 	debugfs_base = debugfs_create_dir(dirname, NULL);
 	if (!debugfs_base)
 		return -ENOMEM;
-	if (!debugfs_create_file("stats", S_IRUGO | S_IWUSR, debugfs_base,
+	if (!debugfs_create_file("stats", 0644, debugfs_base,
 		vfe_dev, &vfe_debugfs_error))
 		return -ENOMEM;
 
-	if (!debugfs_create_file("bw_req_history", S_IRUGO | S_IWUSR,
+	if (!debugfs_create_file("bw_req_history", 0644,
 		debugfs_base, isp_req_hist, &bw_history_ops))
 		return -ENOMEM;
 
-	if (!debugfs_create_file("ub_info", S_IRUGO | S_IWUSR,
+	if (!debugfs_create_file("ub_info", 0644,
 		debugfs_base, vfe_dev, &ub_info_ops))
 		return -ENOMEM;
 
@@ -334,12 +300,12 @@ void msm_isp_update_req_history(uint32_t client, uint64_t ab,
 		ib;
 
 	for (i = 0; i < MAX_ISP_CLIENT; i++) {
-		msm_isp_bw_request_history[msm_isp_bw_request_history_idx].
-			client_info[i].active = client_info[i].active;
-		msm_isp_bw_request_history[msm_isp_bw_request_history_idx].
-			client_info[i].ab = client_info[i].ab;
-		msm_isp_bw_request_history[msm_isp_bw_request_history_idx].
-			client_info[i].ib = client_info[i].ib;
+		msm_isp_bw_request_history[msm_isp_bw_request_history_idx]
+			.client_info[i].active = client_info[i].active;
+		msm_isp_bw_request_history[msm_isp_bw_request_history_idx]
+			.client_info[i].ab = client_info[i].ab;
+		msm_isp_bw_request_history[msm_isp_bw_request_history_idx]
+			.client_info[i].ib = client_info[i].ib;
 	}
 
 	msm_isp_bw_request_history_idx = (msm_isp_bw_request_history_idx + 1)
@@ -362,6 +328,7 @@ void msm_isp_update_last_overflow_ab_ib(struct vfe_device *vfe_dev)
 static long msm_isp_dqevent(struct file *file, struct v4l2_fh *vfh, void *arg)
 {
 	long rc;
+
 	if (is_compat_task()) {
 		struct msm_isp_event_data32 *event_data32;
 		struct msm_isp_event_data  *event_data;
@@ -373,26 +340,48 @@ static long msm_isp_dqevent(struct file *file, struct v4l2_fh *vfh, void *arg)
 				file->f_flags & O_NONBLOCK);
 		if (rc)
 			return rc;
-		event_data = (struct msm_isp_event_data *)
-				isp_event.u.data;
-		isp_event_user = (struct v4l2_event *)arg;
-		memcpy(isp_event_user, &isp_event,
+		if (isp_event.type == ISP_EVENT_SOF_UPDATE_NANOSEC) {
+			struct msm_isp_event_data_nanosec *event_data_nanosec;
+			struct msm_isp_event_data_nanosec
+				*event_data_nanosec_user;
+
+			event_data_nanosec =
+				(struct msm_isp_event_data_nanosec *)
+					isp_event.u.data;
+			isp_event_user = (struct v4l2_event *)arg;
+			memcpy(isp_event_user, &isp_event,
 				sizeof(*isp_event_user));
-		event_data32 = (struct msm_isp_event_data32 *)
-			isp_event_user->u.data;
-		memset(event_data32, 0,
-				sizeof(struct msm_isp_event_data32));
-		event_data32->timestamp.tv_sec =
-				event_data->timestamp.tv_sec;
-		event_data32->timestamp.tv_usec =
-				event_data->timestamp.tv_usec;
-		event_data32->mono_timestamp.tv_sec =
-				event_data->mono_timestamp.tv_sec;
-		event_data32->mono_timestamp.tv_usec =
-				event_data->mono_timestamp.tv_usec;
-		event_data32->frame_id = event_data->frame_id;
-		memcpy(&(event_data32->u), &(event_data->u),
-					sizeof(event_data32->u));
+			event_data_nanosec_user =
+				(struct msm_isp_event_data_nanosec *)
+					isp_event_user->u.data;
+			memset(event_data_nanosec_user, 0,
+				sizeof(struct msm_isp_event_data_nanosec));
+			event_data_nanosec_user->nano_timestamp =
+				event_data_nanosec->nano_timestamp;
+			event_data_nanosec_user->frame_id =
+				event_data_nanosec->frame_id;
+		} else {
+			event_data = (struct msm_isp_event_data *)
+					isp_event.u.data;
+			isp_event_user = (struct v4l2_event *)arg;
+			memcpy(isp_event_user, &isp_event,
+					sizeof(*isp_event_user));
+			event_data32 = (struct msm_isp_event_data32 *)
+				isp_event_user->u.data;
+			memset(event_data32, 0,
+					sizeof(struct msm_isp_event_data32));
+			event_data32->timestamp.tv_sec =
+					event_data->timestamp.tv_sec;
+			event_data32->timestamp.tv_usec =
+					event_data->timestamp.tv_usec;
+			event_data32->mono_timestamp.tv_sec =
+					event_data->mono_timestamp.tv_sec;
+			event_data32->mono_timestamp.tv_usec =
+					event_data->mono_timestamp.tv_usec;
+			event_data32->frame_id = event_data->frame_id;
+			memcpy(&(event_data32->u), &(event_data->u),
+						sizeof(event_data32->u));
+		}
 	} else {
 		rc = v4l2_event_dequeue(vfh, arg,
 				file->f_flags & O_NONBLOCK);
@@ -463,16 +452,16 @@ static void isp_vma_close(struct vm_area_struct *vma)
 	pr_debug("%s: close called\n", __func__);
 }
 
-static int isp_vma_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int isp_vma_fault(struct vm_fault *vmf)
 {
 	struct page *page;
-	struct vfe_device *vfe_dev = vma->vm_private_data;
+	struct vfe_device *vfe_dev = vmf->vma->vm_private_data;
 	struct isp_kstate *isp_page = NULL;
 
 	isp_page = vfe_dev->isp_page;
 
 	pr_debug("%s: vfeid:%d u_virt_addr:0x%lx k_virt_addr:%pK\n",
-		__func__, vfe_dev->pdev->id, vma->vm_start,
+		__func__, vfe_dev->pdev->id, vmf->vma->vm_start,
 		(void *)isp_page);
 	if (isp_page != NULL) {
 		page = virt_to_page(isp_page);
@@ -549,20 +538,33 @@ static int vfe_set_common_data(struct platform_device *pdev)
 
 static int vfe_probe(struct platform_device *pdev)
 {
+	struct vfe_parent_device *vfe_parent_dev;
 	int rc = 0;
 	struct device_node *node;
 	struct platform_device *new_dev = NULL;
 	uint32_t i = 0;
 	char name[10] = "\0";
-	uint32_t num_hw_sd;
 
-	memset(&vfe_common_data, 0, sizeof(vfe_common_data));
+	vfe_parent_dev = kzalloc(sizeof(struct vfe_parent_device),
+		GFP_KERNEL);
+	if (!vfe_parent_dev) {
+		rc = -ENOMEM;
+		goto end;
+	}
+
+	vfe_parent_dev->common_sd = kzalloc(
+		sizeof(struct msm_vfe_common_subdev), GFP_KERNEL);
+	if (!vfe_parent_dev->common_sd) {
+		rc = -ENOMEM;
+		goto probe_fail1;
+	}
+
+	vfe_parent_dev->common_sd->common_data = &vfe_common_data;
 	mutex_init(&vfe_common_data.vfe_common_mutex);
 	spin_lock_init(&vfe_common_data.common_dev_data_lock);
-	spin_lock_init(&vfe_common_data.vfe_irq_dump.
-			common_dev_irq_dump_lock);
-	spin_lock_init(&vfe_common_data.vfe_irq_dump.
-			common_dev_tasklet_dump_lock);
+	spin_lock_init(&vfe_common_data.vfe_irq_dump.common_dev_irq_dump_lock);
+	spin_lock_init(
+		&vfe_common_data.vfe_irq_dump.common_dev_tasklet_dump_lock);
 	for (i = 0; i < (VFE_AXI_SRC_MAX * MAX_VFE); i++)
 		spin_lock_init(&(vfe_common_data.streams[i].lock));
 	for (i = 0; i < (MSM_ISP_STATS_MAX * MAX_VFE); i++)
@@ -576,29 +578,42 @@ static int vfe_probe(struct platform_device *pdev)
 		spin_lock_init(&vfe_common_data.tasklets[i].tasklet_lock);
 	}
 
-	of_property_read_u32(pdev->dev.of_node, "num_child", &num_hw_sd);
+	of_property_read_u32(pdev->dev.of_node,
+		"num_child", &vfe_parent_dev->num_hw_sd);
 
-	for (i = 0; i < num_hw_sd; i++) {
+	for (i = 0; i < vfe_parent_dev->num_hw_sd; i++) {
 		node = NULL;
 		snprintf(name, sizeof(name), "qcom,vfe%d", i);
 		node = of_find_node_by_name(NULL, name);
 		if (!node) {
 			pr_err("%s: Error! Cannot find node in dtsi %s\n",
 				__func__, name);
-			break;
+			goto probe_fail2;
 		}
 		new_dev = of_find_device_by_node(node);
 		if (!new_dev) {
 			pr_err("%s: Failed to find device on bus %s\n",
 				__func__, node->name);
-			break;
+			goto probe_fail2;
 		}
-		new_dev->dev.platform_data = &vfe_common_data;
+		vfe_parent_dev->child_list[i] = new_dev;
+		new_dev->dev.platform_data =
+			(void *)vfe_parent_dev->common_sd->common_data;
 		rc = vfe_set_common_data(new_dev);
 		if (rc < 0)
-			break;
+			goto probe_fail2;
 	}
 
+	vfe_parent_dev->num_sd = vfe_parent_dev->num_hw_sd;
+	vfe_parent_dev->pdev = pdev;
+
+	return rc;
+
+probe_fail2:
+	kfree(vfe_parent_dev->common_sd);
+probe_fail1:
+	kfree(vfe_parent_dev);
+end:
 	return rc;
 }
 
@@ -608,23 +623,21 @@ int vfe_hw_probe(struct platform_device *pdev)
 	/*struct msm_cam_subdev_info sd_info;*/
 	const struct of_device_id *match_dev;
 	int rc = 0;
+	struct msm_vfe_hardware_info *hw_info;
 
 	vfe_dev = kzalloc(sizeof(struct vfe_device), GFP_KERNEL);
 	if (!vfe_dev) {
-		pr_err("%s: no enough memory\n", __func__);
 		rc = -ENOMEM;
 		goto end;
 	}
 	vfe_dev->stats = kzalloc(sizeof(struct msm_isp_statistics), GFP_KERNEL);
 	if (!vfe_dev->stats) {
-		pr_err("%s: no enough memory\n", __func__);
 		rc = -ENOMEM;
 		goto probe_fail1;
 	}
 
 	vfe_dev->ub_info = kzalloc(sizeof(struct msm_isp_ub_info), GFP_KERNEL);
 	if (!vfe_dev->ub_info) {
-		pr_err("%s: no enough memory\n", __func__);
 		rc = -ENOMEM;
 		goto probe_fail2;
 	}
@@ -647,6 +660,11 @@ int vfe_hw_probe(struct platform_device *pdev)
 			"qcom,vfe-cx-ipeak", NULL)) {
 			vfe_dev->vfe_cx_ipeak = cx_ipeak_register(
 				pdev->dev.of_node, "qcom,vfe-cx-ipeak");
+			if (vfe_dev->vfe_cx_ipeak)
+				cam_cx_ipeak_register_cx_ipeak(
+				vfe_dev->vfe_cx_ipeak, &vfe_dev->cx_ipeak_bit);
+			pr_debug("%s: register cx_ipeak received bit %d\n",
+				__func__, vfe_dev->cx_ipeak_bit);
 		}
 	} else {
 		vfe_dev->hw_info = (struct msm_vfe_hardware_info *)
@@ -661,12 +679,22 @@ int vfe_hw_probe(struct platform_device *pdev)
 	ISP_DBG("%s: device id = %d\n", __func__, pdev->id);
 
 	vfe_dev->pdev = pdev;
+	hw_info = vfe_dev->hw_info;
 
 	rc = vfe_dev->hw_info->vfe_ops.platform_ops.get_platform_data(vfe_dev);
 	if (rc < 0) {
 		pr_err("%s: failed to get platform resources\n", __func__);
 		rc = -ENOMEM;
 		goto probe_fail3;
+	}
+
+	if (
+	hw_info->vfe_ops.platform_ops.get_dual_sync_platform_data) {
+		rc =
+		hw_info->vfe_ops.platform_ops.get_dual_sync_platform_data(
+			vfe_dev);
+			if (rc < 0)
+				pr_err("%s:fail get dual_sync\n", __func__);
 	}
 
 	v4l2_subdev_init(&vfe_dev->subdev.sd, &msm_vfe_v4l2_subdev_ops);
@@ -686,9 +714,9 @@ int vfe_hw_probe(struct platform_device *pdev)
 	spin_lock_init(&req_history_lock);
 	spin_lock_init(&vfe_dev->reset_completion_lock);
 	spin_lock_init(&vfe_dev->halt_completion_lock);
-	media_entity_init(&vfe_dev->subdev.sd.entity, 0, NULL, 0);
-	vfe_dev->subdev.sd.entity.type = MEDIA_ENT_T_V4L2_SUBDEV;
-	vfe_dev->subdev.sd.entity.group_id = MSM_CAMERA_SUBDEV_VFE;
+	media_entity_pads_init(&vfe_dev->subdev.sd.entity, 0, NULL);
+	vfe_dev->subdev.sd.entity.function = MSM_CAMERA_SUBDEV_VFE;
+	//vfe_dev->subdev.sd.entity.group_id = MSM_CAMERA_SUBDEV_VFE;
 	vfe_dev->subdev.sd.entity.name = pdev->name;
 	vfe_dev->subdev.close_seq = MSM_SD_CLOSE_1ST_CATEGORY | 0x2;
 	rc = msm_sd_register(&vfe_dev->subdev);
@@ -744,7 +772,6 @@ static struct platform_driver vfe_driver = {
 	.probe = vfe_probe,
 	.driver = {
 		.name = "msm_vfe",
-		.owner = THIS_MODULE,
 		.of_match_table = msm_vfe_dt_match,
 	},
 };

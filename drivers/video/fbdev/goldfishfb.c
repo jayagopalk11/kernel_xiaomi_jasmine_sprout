@@ -201,8 +201,7 @@ static int goldfish_fb_pan_display(struct fb_var_screeninfo *var,
 	wait_event_timeout(fb->wait,
 			fb->base_update_count != base_update_count, HZ / 15);
 	if (fb->base_update_count == base_update_count)
-		pr_err("goldfish_fb_pan_display: timeout waiting for "
-			"base update\n");
+		pr_err("%s: timeout waiting for base update\n", __func__);
 	return 0;
 }
 
@@ -300,16 +299,14 @@ static int goldfish_fb_probe(struct platform_device *pdev)
 	fb->fb.var.width	= readl(fb->reg_base + FB_GET_PHYS_WIDTH);
 	fb->fb.var.pixclock	= 0;
 
-	fb->fb.var.red.offset = fb_config->red_offset;
-	fb->fb.var.red.length = fb_config->red_length;
-	fb->fb.var.green.offset = fb_config->green_offset;
-	fb->fb.var.green.length = fb_config->green_length;
-	fb->fb.var.blue.offset = fb_config->blue_offset;
-	fb->fb.var.blue.length = fb_config->blue_length;
-	fb->fb.var.transp.offset = fb_config->transp_offset;
-	fb->fb.var.transp.length = fb_config->transp_length;
+	fb->fb.var.red.offset = 11;
+	fb->fb.var.red.length = 5;
+	fb->fb.var.green.offset = 5;
+	fb->fb.var.green.length = 6;
+	fb->fb.var.blue.offset = 0;
+	fb->fb.var.blue.length = 5;
 
-	framesize = width * height * 2 * bytes_per_pixel;
+	framesize = width * height * 2 * 2;
 	fb->fb.screen_base = (char __force __iomem *)dma_alloc_coherent(
 						&pdev->dev, framesize,
 						&fbpaddr, GFP_KERNEL);

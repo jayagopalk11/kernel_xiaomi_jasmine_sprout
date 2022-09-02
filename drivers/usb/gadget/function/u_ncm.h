@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * u_ncm.h
  *
@@ -7,10 +8,6 @@
  *		http://www.samsung.com
  *
  * Author: Andrzej Pietrasiewicz <andrzej.p@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef U_NCM_H
@@ -32,5 +29,9 @@ struct f_ncm_opts {
 	struct mutex			lock;
 	int				refcnt;
 };
+
+extern struct device *create_function_device(char *name);
+int ncm_ctrlrequest(struct usb_composite_dev *cdev,
+		const struct usb_ctrlrequest *ctrl);
 
 #endif /* U_NCM_H */

@@ -1,15 +1,5 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (c) 2013-2018, 2020-2021, The Linux Foundation. All rights reserved. */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -31,7 +21,7 @@
 #include "mdss_panel.h"
 #include "mdss_mdp.h"
 
-#define STATUS_CHECK_INTERVAL_MS 1000
+#define STATUS_CHECK_INTERVAL_MS 5000
 #define STATUS_CHECK_INTERVAL_MIN_MS 50
 #define DSI_STATUS_CHECK_INIT -1
 #define DSI_STATUS_CHECK_DISABLE 1
@@ -60,8 +50,11 @@ int mdss_dsi_check_panel_status(struct mdss_dsi_ctrl_pdata *ctrl, void *arg)
 	 * then no need to fail this function,
 	 * instead return a positive value.
 	 */
-	if (ctrl->check_status)
+	if (ctrl->check_status) {
+		mutex_lock(&mfd->sd_lock);
 		ret = ctrl->check_status(ctrl);
+		mutex_unlock(&mfd->sd_lock);
+	}
 	else
 		ret = 1;
 	mutex_unlock(&ctl->offlock);
@@ -160,14 +153,16 @@ static int fb_event_callback(struct notifier_block *self,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	struct mdss_panel_info *pinfo;
 	struct msm_fb_data_type *mfd;
+	char fb_id[7] = {'\0'};
 
 	if (!evdata) {
 		pr_err("%s: event data not available\n", __func__);
 		return NOTIFY_BAD;
 	}
 
+	strlcpy(fb_id, evdata->info->fix.id, 7);
 	/* handle only mdss fb device */
-	if (strncmp("mdssfb", evdata->info->fix.id, 6))
+	if (strcmp("mdssfb", fb_id))
 		return NOTIFY_DONE;
 
 	mfd = evdata->info->par;
@@ -214,7 +209,8 @@ static int fb_event_callback(struct notifier_block *self,
 	return 0;
 }
 
-static int param_dsi_status_disable(const char *val, struct kernel_param *kp)
+static int param_dsi_status_disable(const char *val,
+		const struct kernel_param *kp)
 {
 	int ret = 0;
 	int int_val;
@@ -229,7 +225,7 @@ static int param_dsi_status_disable(const char *val, struct kernel_param *kp)
 	return ret;
 }
 
-static int param_set_interval(const char *val, struct kernel_param *kp)
+static int param_set_interval(const char *val, const struct kernel_param *kp)
 {
 	int ret = 0;
 	int int_val;
@@ -254,10 +250,8 @@ int __init mdss_dsi_status_init(void)
 	int rc = 0;
 
 	pstatus_data = kzalloc(sizeof(struct dsi_status_data), GFP_KERNEL);
-	if (!pstatus_data) {
-		pr_err("%s: can't allocate memory\n", __func__);
+	if (!pstatus_data)
 		return -ENOMEM;
-	}
 
 	pstatus_data->fb_notifier.notifier_call = fb_event_callback;
 
@@ -289,8 +283,7 @@ void __exit mdss_dsi_status_exit(void)
 module_param_call(interval, param_set_interval, param_get_uint,
 						&interval, 0644);
 MODULE_PARM_DESC(interval,
-		"Duration in milliseconds to send BTA command for checking"
-		"DSI status periodically");
+	"Duration in milliseconds to send BTA command for DSI status check");
 
 module_param_call(dsi_status_disable, param_dsi_status_disable, param_get_uint,
 						&dsi_status_disable, 0644);

@@ -1,10 +1,9 @@
 /*
  * Synaptics TCM touchscreen driver
  *
- * Copyright (C) 2017-2018 Synaptics Incorporated. All rights reserved.
+ * Copyright (C) 2017-2019 Synaptics Incorporated. All rights reserved.
  *
- * Copyright (C) 2017-2018 Scott Lin <scott.lin@tw.synaptics.com>
- * Copyright (C) 2018 XiaoMi, Inc.
+ * Copyright (C) 2017-2019 Scott Lin <scott.lin@tw.synaptics.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,11 +96,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 				&value);
 		if (retval < 0) {
 			LOGE(dev,
-					"Failed to read synaptics,power-on-state property\n");
+				"Failed to read synaptics,power-on-state\n");
 			return retval;
-		} else {
-			bdata->power_on_state = value;
 		}
+		bdata->power_on_state = value;
 	} else {
 		bdata->power_on_state = 0;
 	}
@@ -111,12 +109,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,power-delay-ms",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Failed to read synaptics,power-delay-ms property\n");
+			LOGE(dev, "Failed to read synaptics,power-delay-ms\n");
 			return retval;
-		} else {
-			bdata->power_delay_ms = value;
 		}
+		bdata->power_delay_ms = value;
 	} else {
 		bdata->power_delay_ms = 0;
 	}
@@ -134,12 +130,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,reset-on-state",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Failed to read synaptics,reset-on-state property\n");
+			LOGE(dev, "Failed to read synaptics,reset-on-state\n");
 			return retval;
-		} else {
-			bdata->reset_on_state = value;
 		}
+		bdata->reset_on_state = value;
 	} else {
 		bdata->reset_on_state = 0;
 	}
@@ -149,12 +143,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,reset-active-ms",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Failed to read synaptics,reset-active-ms property\n");
+			LOGE(dev, "Failed to read synaptics,reset-active-ms\n");
 			return retval;
-		} else {
-			bdata->reset_active_ms = value;
 		}
+		bdata->reset_active_ms = value;
 	} else {
 		bdata->reset_active_ms = 0;
 	}
@@ -164,12 +156,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,reset-delay-ms",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Unable to read synaptics,reset-delay-ms property\n");
+			LOGE(dev, "Unable to read synaptics,reset-delay-ms\n");
 			return retval;
-		} else {
-			bdata->reset_delay_ms = value;
 		}
+		bdata->reset_delay_ms = value;
 	} else {
 		bdata->reset_delay_ms = 0;
 	}
@@ -188,12 +178,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,byte-delay-us",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Unable to read synaptics,byte-delay-us property\n");
+			LOGE(dev, "Unable to read synaptics,byte-delay-us\n");
 			return retval;
-		} else {
-			bdata->byte_delay_us = value;
 		}
+		bdata->byte_delay_us = value;
 	} else {
 		bdata->byte_delay_us = 0;
 	}
@@ -203,12 +191,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,block-delay-us",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Unable to read synaptics,block-delay-us property\n");
+			LOGE(dev, "Unable to read synaptics,block-delay-us\n");
 			return retval;
-		} else {
-			bdata->block_delay_us = value;
 		}
+		bdata->block_delay_us = value;
 	} else {
 		bdata->block_delay_us = 0;
 	}
@@ -218,12 +204,11 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,spi-mode",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Unable to read synaptics,spi-mode property\n");
+			LOGE(dev, "Unable to read synaptics,spi-mode\n");
 			return retval;
-		} else {
-			bdata->spi_mode = value;
 		}
+		bdata->spi_mode = value;
+
 	} else {
 		bdata->spi_mode = 0;
 	}
@@ -233,12 +218,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 		retval = of_property_read_u32(np, "synaptics,ubl-max-freq",
 				&value);
 		if (retval < 0) {
-			LOGE(dev,
-					"Unable to read synaptics,ubl-max-freq property\n");
+			LOGE(dev, "Unable to read synaptics,ubl-max-freq\n");
 			return retval;
-		} else {
-			bdata->ubl_max_freq = value;
 		}
+		bdata->ubl_max_freq = value;
 	} else {
 		bdata->ubl_max_freq = 0;
 	}
@@ -249,11 +232,10 @@ static int parse_dt(struct device *dev, struct syna_tcm_board_data *bdata)
 				&value);
 		if (retval < 0) {
 			LOGE(dev,
-					"Unable to read synaptics,ubl-byte-delay-us property\n");
+				"Unable to read synaptics,ubl-byte-delay-us\n");
 			return retval;
-		} else {
-			bdata->ubl_byte_delay_us = value;
 		}
+		bdata->ubl_byte_delay_us = value;
 	} else {
 		bdata->ubl_byte_delay_us = 0;
 	}
@@ -645,7 +627,7 @@ static const struct spi_device_id syna_tcm_id_table[] = {
 MODULE_DEVICE_TABLE(spi, syna_tcm_id_table);
 
 #ifdef CONFIG_OF
-static struct of_device_id syna_tcm_of_match_table[] = {
+static const struct of_device_id syna_tcm_of_match_table[] = {
 	{
 		.compatible = "synaptics,tcm-spi",
 	},
@@ -680,8 +662,6 @@ void syna_tcm_bus_exit(void)
 	kfree(xfer);
 
 	spi_unregister_driver(&syna_tcm_spi_driver);
-
-	return;
 }
 EXPORT_SYMBOL(syna_tcm_bus_exit);
 

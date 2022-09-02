@@ -1,13 +1,6 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * Copyright (c) 2012-2016, 2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __IPA_REG_H__
@@ -85,8 +78,8 @@
 #define IPA_COUNTER_CFG_AGGR_GRAN_BMSK 0x1F0
 #define IPA_COUNTER_CFG_AGGR_GRAN_SHFT 0x4
  /*
- * End of IPA 2.5 Registers
- */
+  * End of IPA 2.5 Registers
+  */
 
 /*
  * IPA HW 2.6/2.6L Registers
@@ -98,8 +91,8 @@
  */
 
 /*
-Common Registers
-*/
+ * Common Registers
+ */
 #define IPA_REG_BASE_OFST_v2_0 0x00020000
 #define IPA_REG_BASE_OFST_v2_5 0x00040000
 #define IPA_REG_BASE_OFST_v2_6L IPA_REG_BASE_OFST_v2_5
@@ -216,8 +209,8 @@ Common Registers
 
 
 /*
- IPA HW 1.1 specific Registers
-*/
+ * IPA HW 1.1 specific Registers
+ */
 
 #define IPA_FILTER_FILTER_DIS_BMSK 0x1
 #define IPA_FILTER_FILTER_DIS_SHFT 0x0

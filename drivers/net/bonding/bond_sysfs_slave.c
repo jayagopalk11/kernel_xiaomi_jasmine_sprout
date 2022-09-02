@@ -25,8 +25,8 @@ const struct slave_attribute slave_attr_##_name = {		\
 		 .mode = _mode },				\
 	.show	= _show,					\
 };
-#define SLAVE_ATTR_RO(_name) \
-	SLAVE_ATTR(_name, S_IRUGO, _name##_show)
+#define SLAVE_ATTR_RO(_name)					\
+	SLAVE_ATTR(_name, 0444, _name##_show)
 
 static ssize_t state_show(struct slave *slave, char *buf)
 {
@@ -153,8 +153,10 @@ int bond_sysfs_slave_add(struct slave *slave)
 
 	err = kobject_init_and_add(&slave->kobj, &slave_ktype,
 				   &(slave->dev->dev.kobj), "bonding_slave");
-	if (err)
+	if (err) {
+		kobject_put(&slave->kobj);
 		return err;
+	}
 
 	for (a = slave_attrs; *a; ++a) {
 		err = sysfs_create_file(&slave->kobj, &((*a)->attr));

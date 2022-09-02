@@ -1,14 +1,5 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (c) 2010-2018, 2020, The Linux Foundation. All rights reserved. */
 
 #include <linux/io.h>
 #include <linux/list.h>
@@ -56,7 +47,7 @@ static int hdmi_cec_msg_send(void *data, struct cec_msg *msg)
 	struct hdmi_cec_ctrl *cec_ctrl = (struct hdmi_cec_ctrl *)data;
 
 	if (!cec_ctrl || !cec_ctrl->init_data.io || !msg) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return -EINVAL;
 	}
 
@@ -129,7 +120,7 @@ static void hdmi_cec_init_input_event(struct hdmi_cec_ctrl *cec_ctrl)
 	int rc = 0;
 
 	if (!cec_ctrl) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return;
 	}
 
@@ -149,7 +140,7 @@ static void hdmi_cec_init_input_event(struct hdmi_cec_ctrl *cec_ctrl)
 
 	rc = input_register_device(cec_ctrl->input);
 	if (rc) {
-		DEV_ERR("%s: cec input device registeration failed\n",
+		DEV_ERR("%s: cec input device registration failed\n",
 				__func__);
 		input_free_device(cec_ctrl->input);
 		cec_ctrl->input = NULL;
@@ -175,7 +166,7 @@ static void hdmi_cec_msg_recv(struct work_struct *work)
 
 	cec_ctrl = container_of(work, struct hdmi_cec_ctrl, cec_read_work);
 	if (!cec_ctrl || !cec_ctrl->init_data.io) {
-		DEV_ERR("%s: invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return;
 	}
 
@@ -266,7 +257,7 @@ int hdmi_cec_isr(void *input)
 	struct hdmi_cec_ctrl *cec_ctrl = (struct hdmi_cec_ctrl *)input;
 
 	if (!cec_ctrl || !cec_ctrl->init_data.io) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return -EPERM;
 	}
 
@@ -333,7 +324,7 @@ bool hdmi_cec_is_wakeup_en(void *input)
 
 	if (!cec_ctrl) {
 		DEV_WARN("%s: HDMI CEC HW module not initialized.\n", __func__);
-		return 0;
+		return false;
 	}
 
 	return cec_ctrl->cec_wakeup_en;
@@ -344,7 +335,7 @@ static void hdmi_cec_wakeup_en(void *input, bool enable)
 	struct hdmi_cec_ctrl *cec_ctrl = (struct hdmi_cec_ctrl *)input;
 
 	if (!cec_ctrl) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return;
 	}
 
@@ -356,7 +347,7 @@ static void hdmi_cec_write_logical_addr(void *input, u8 addr)
 	struct hdmi_cec_ctrl *cec_ctrl = (struct hdmi_cec_ctrl *)input;
 
 	if (!cec_ctrl || !cec_ctrl->init_data.io) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		return;
 	}
 
@@ -373,7 +364,7 @@ static int hdmi_cec_enable(void *input, bool enable)
 	struct mdss_panel_info *pinfo;
 
 	if (!cec_ctrl || !cec_ctrl->init_data.io) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		ret = -EPERM;
 		goto end;
 	}
@@ -382,7 +373,7 @@ static int hdmi_cec_enable(void *input, bool enable)
 	pinfo = cec_ctrl->init_data.pinfo;
 
 	if (!pinfo) {
-		DEV_ERR("%s: invalid pinfo\n", __func__);
+		DEV_ERR("%s: invalid panel info\n", __func__);
 		goto end;
 	}
 
@@ -445,7 +436,7 @@ void *hdmi_cec_init(struct hdmi_cec_init_data *init_data)
 	int ret = 0;
 
 	if (!init_data) {
-		DEV_ERR("%s: Invalid input\n", __func__);
+		DEV_ERR("%s: invalid cec ctrl\n", __func__);
 		ret = -EINVAL;
 		goto error;
 	}

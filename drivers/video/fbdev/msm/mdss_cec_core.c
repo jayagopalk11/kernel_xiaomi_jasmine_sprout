@@ -1,14 +1,5 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (c) 2015-2018, 2020, The Linux Foundation. All rights reserved. */
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -50,7 +41,7 @@ static struct cec_ctl *cec_get_ctl(struct device *dev)
 	struct mdss_panel_info *pinfo;
 
 	if (!dev) {
-		pr_err("invalid input\n");
+		pr_err("invalid device\n");
 		goto error;
 	}
 
@@ -83,8 +74,13 @@ static int cec_msg_send(struct cec_ctl *ctl, struct cec_msg *msg)
 	int ret = -EINVAL;
 	struct cec_ops *ops;
 
-	if (!ctl || !msg) {
-		pr_err("invalid input\n");
+	if (!ctl) {
+		pr_err("invalid cec ctl\n");
+		goto end;
+	}
+
+	if (!msg) {
+		pr_err("invalid cec message\n");
 		goto end;
 	}
 
@@ -101,8 +97,13 @@ static void cec_dump_msg(struct cec_ctl *ctl, struct cec_msg *msg)
 	int i;
 	unsigned long flags;
 
-	if (!ctl || !msg) {
-		pr_err("invalid input\n");
+	if (!ctl) {
+		pr_err("invalid cec ctl\n");
+		return;
+	}
+
+	if (!msg) {
+		pr_err("invalid cec message\n");
 		return;
 	}
 
@@ -136,7 +137,7 @@ static int cec_disable(struct cec_ctl *ctl)
 	struct cec_ops *ops;
 
 	if (!ctl) {
-		pr_err("Invalid input\n");
+		pr_err("invalid cec ctl\n");
 		goto end;
 	}
 
@@ -165,7 +166,7 @@ static int cec_enable(struct cec_ctl *ctl)
 	struct cec_ops *ops;
 
 	if (!ctl) {
-		pr_err("Invalid input\n");
+		pr_err("invalid cec ctl\n");
 		goto end;
 	}
 
@@ -189,8 +190,13 @@ static int cec_send_abort_opcode(struct cec_ctl *ctl,
 	int i = 0;
 	struct cec_msg out_msg;
 
-	if (!ctl || !in_msg) {
-		pr_err("Invalid input\n");
+	if (!ctl) {
+		pr_err("invalid cec ctl\n");
+		return -EINVAL;
+	}
+
+	if (!in_msg) {
+		pr_err("invalid cec message\n");
 		return -EINVAL;
 	}
 
@@ -209,10 +215,14 @@ static int cec_msg_parser(struct cec_ctl *ctl, struct cec_msg *in_msg)
 	int rc = 0, i = 0;
 	struct cec_msg out_msg;
 
-	if (!ctl || !in_msg) {
-		pr_err("Invalid input\n");
-		rc = -EINVAL;
-		goto end;
+	if (!ctl) {
+		pr_err("invalid cec ctl\n");
+		return -EINVAL;
+	}
+
+	if (!in_msg) {
+		pr_err("invalid cec message\n");
+		return -EINVAL;
 	}
 
 	pr_debug("in_msg->opcode = 0x%x\n", in_msg->opcode);
@@ -345,7 +355,7 @@ static int cec_msg_recv(void *data, struct cec_msg *msg)
 	int ret = 0;
 
 	if (!ctl) {
-		pr_err("invalid input\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -387,7 +397,7 @@ end:
 	return ret;
 }
 
-static ssize_t cec_rda_enable(struct device *dev,
+static ssize_t enable_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	ssize_t ret = 0;
@@ -395,7 +405,7 @@ static ssize_t cec_rda_enable(struct device *dev,
 	struct cec_ctl *ctl = cec_get_ctl(dev);
 
 	if (!ctl) {
-		pr_err("Invalid input\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -403,17 +413,17 @@ static ssize_t cec_rda_enable(struct device *dev,
 	spin_lock_irqsave(&ctl->lock, flags);
 	if (ctl->enabled) {
 		pr_debug("cec is enabled\n");
-		ret = snprintf(buf, PAGE_SIZE, "%d\n", 1);
+		ret = scnprintf(buf, PAGE_SIZE, "%d\n", 1);
 	} else {
 		pr_err("cec is disabled\n");
-		ret = snprintf(buf, PAGE_SIZE, "%d\n", 0);
+		ret = scnprintf(buf, PAGE_SIZE, "%d\n", 0);
 	}
 	spin_unlock_irqrestore(&ctl->lock, flags);
 end:
 	return ret;
 }
 
-static ssize_t cec_wta_enable(struct device *dev,
+static ssize_t enable_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
 	int val;
@@ -423,7 +433,7 @@ static ssize_t cec_wta_enable(struct device *dev,
 	struct cec_ops *ops;
 
 	if (!ctl) {
-		pr_err("Invalid input\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -467,7 +477,7 @@ end:
 	return ret;
 }
 
-static ssize_t cec_rda_enable_compliance(struct device *dev,
+static ssize_t enable_compliance_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	unsigned long flags;
@@ -475,12 +485,12 @@ static ssize_t cec_rda_enable_compliance(struct device *dev,
 	struct cec_ctl *ctl = cec_get_ctl(dev);
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		return -EINVAL;
 	}
 
 	spin_lock_irqsave(&ctl->lock, flags);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n",
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n",
 		ctl->compliance_enabled);
 
 	spin_unlock_irqrestore(&ctl->lock, flags);
@@ -488,7 +498,7 @@ static ssize_t cec_rda_enable_compliance(struct device *dev,
 	return ret;
 }
 
-static ssize_t cec_wta_enable_compliance(struct device *dev,
+static ssize_t enable_compliance_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
 	int val;
@@ -497,7 +507,7 @@ static ssize_t cec_wta_enable_compliance(struct device *dev,
 	struct cec_ops *ops;
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -535,7 +545,7 @@ end:
 	return ret;
 }
 
-static ssize_t cec_rda_logical_addr(struct device *dev,
+static ssize_t logical_addr_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	unsigned long flags;
@@ -543,18 +553,18 @@ static ssize_t cec_rda_logical_addr(struct device *dev,
 	struct cec_ctl *ctl = cec_get_ctl(dev);
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		return -EINVAL;
 	}
 
 	spin_lock_irqsave(&ctl->lock, flags);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", ctl->logical_addr);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", ctl->logical_addr);
 	spin_unlock_irqrestore(&ctl->lock, flags);
 
 	return ret;
 }
 
-static ssize_t cec_wta_logical_addr(struct device *dev,
+static ssize_t logical_addr_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
 	int logical_addr;
@@ -564,7 +574,7 @@ static ssize_t cec_wta_logical_addr(struct device *dev,
 	struct cec_ops *ops;
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -578,7 +588,7 @@ static ssize_t cec_wta_logical_addr(struct device *dev,
 	}
 
 	if (logical_addr < 0 || logical_addr > 15) {
-		pr_err("Invalid logical address\n");
+		pr_err("invalid logical address\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -594,7 +604,7 @@ end:
 	return ret;
 }
 
-static ssize_t cec_rda_msg(struct device *dev,
+static ssize_t rd_msg_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	int i = 0;
@@ -604,7 +614,7 @@ static ssize_t cec_rda_msg(struct device *dev,
 	ssize_t ret;
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -651,7 +661,7 @@ end:
 	return ret;
 }
 
-static ssize_t cec_wta_msg(struct device *dev,
+static ssize_t wr_msg_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
 	ssize_t ret;
@@ -660,7 +670,7 @@ static ssize_t cec_wta_msg(struct device *dev,
 	struct cec_ctl *ctl = cec_get_ctl(dev);
 
 	if (!ctl) {
-		pr_err("Invalid ctl\n");
+		pr_err("invalid cec ctl\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -697,14 +707,11 @@ end:
 	return ret;
 }
 
-static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, cec_rda_enable,
-	cec_wta_enable);
-static DEVICE_ATTR(enable_compliance, S_IRUGO | S_IWUSR,
-	cec_rda_enable_compliance, cec_wta_enable_compliance);
-static DEVICE_ATTR(logical_addr, S_IRUSR | S_IWUSR,
-	cec_rda_logical_addr, cec_wta_logical_addr);
-static DEVICE_ATTR(rd_msg, S_IRUGO, cec_rda_msg, NULL);
-static DEVICE_ATTR(wr_msg, S_IWUSR | S_IRUSR, NULL, cec_wta_msg);
+static DEVICE_ATTR_RW(enable);
+static DEVICE_ATTR_RW(enable_compliance);
+static DEVICE_ATTR_RW(logical_addr);
+static DEVICE_ATTR_RO(rd_msg);
+static DEVICE_ATTR_WO(wr_msg);
 
 static struct attribute *cec_fs_attrs[] = {
 	&dev_attr_enable.attr,
@@ -756,14 +763,14 @@ int cec_abstract_deinit(void *input)
  *
  * Return: pinter to cec abstract data which needs to be passed
  * as parameter with callback functions.
-*/
+ */
 void *cec_abstract_init(struct cec_abstract_init_data *init_data)
 {
 	struct cec_ctl *ctl = NULL;
 	int ret = 0;
 
 	if (!init_data) {
-		pr_err("invalid input\n");
+		pr_err("invalid cec abstract init data\n");
 		ret = -EINVAL;
 		goto end;
 	}

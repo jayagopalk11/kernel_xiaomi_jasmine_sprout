@@ -1,17 +1,12 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __KGSL_DRAWOBJ_H
 #define __KGSL_DRAWOBJ_H
+
+#include <linux/kref.h>
 
 #define DRAWOBJ(obj) (&obj->base)
 #define SYNCOBJ(obj) \
@@ -105,6 +100,17 @@ struct kgsl_drawobj_sync {
 	unsigned long timeout_jiffies;
 };
 
+#define KGSL_FENCE_NAME_LEN 74
+
+struct fence_info {
+	char name[KGSL_FENCE_NAME_LEN];
+};
+
+struct event_fence_info {
+	struct fence_info *fences;
+	int num_fences;
+};
+
 /**
  * struct kgsl_drawobj_sync_event
  * @id: identifer (positiion within the pending bitmap)
@@ -114,8 +120,8 @@ struct kgsl_drawobj_sync {
  *           register this event
  * @timestamp: Pending timestamp for the event
  * @handle: Pointer to a sync fence handle
- * @handle_lock: Spin lock to protect handle
  * @device: Pointer to the KGSL device
+ * @info: structure to hold info about the fence
  */
 struct kgsl_drawobj_sync_event {
 	unsigned int id;
@@ -123,9 +129,9 @@ struct kgsl_drawobj_sync_event {
 	struct kgsl_drawobj_sync *syncobj;
 	struct kgsl_context *context;
 	unsigned int timestamp;
-	struct kgsl_sync_fence_waiter *handle;
-	spinlock_t handle_lock;
+	struct kgsl_sync_fence_cb *handle;
 	struct kgsl_device *device;
+	struct event_fence_info info;
 };
 
 /**
@@ -168,6 +174,9 @@ enum kgsl_drawobj_cmd_priv {
 	CMDOBJ_PROFILE,
 };
 
+struct kgsl_ibdesc;
+struct kgsl_cmd_syncpoint;
+
 struct kgsl_drawobj_cmd *kgsl_drawobj_cmd_create(struct kgsl_device *device,
 		struct kgsl_context *context, unsigned int flags,
 		unsigned int type);
@@ -208,6 +217,8 @@ void kgsl_dump_syncpoints(struct kgsl_device *device,
 
 void kgsl_drawobj_destroy(struct kgsl_drawobj *drawobj);
 
+void kgsl_drawobj_destroy_object(struct kref *kref);
+
 static inline bool kgsl_drawobj_events_pending(
 		struct kgsl_drawobj_sync *syncobj)
 {
@@ -222,4 +233,11 @@ static inline bool kgsl_drawobj_event_pending(
 
 	return test_bit(bit, &syncobj->pending);
 }
+
+static inline void kgsl_drawobj_put(struct kgsl_drawobj *drawobj)
+{
+	if (drawobj)
+		kref_put(&drawobj->refcount, kgsl_drawobj_destroy_object);
+}
+
 #endif /* __KGSL_DRAWOBJ_H */

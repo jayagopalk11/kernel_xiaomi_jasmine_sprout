@@ -2,8 +2,8 @@
  * Synaptics DSX touchscreen driver
  *
  * Copyright (C) 2012-2016 Synaptics Incorporated. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
  *
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  * Copyright (C) 2012 Alexandra Chin <alexandra.chin@tw.synaptics.com>
  * Copyright (C) 2012 Scott Lin <scott.lin@tw.synaptics.com>
  *
@@ -42,16 +42,11 @@
 #include <linux/hrtimer.h>
 #include <linux/platform_device.h>
 #include <linux/input/synaptics_dsx.h>
-#include <asm/uaccess.h>
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
 #include "synaptics_dsx_core.h"
-#include "../lct_ctp_selftest.h"
 
 #define SYSFS_FOLDER_NAME "f54"
-#define SYN_RAWDATA_FILE "/data/nvt_test/SYN_tddi_rawdata.txt"
 
-#define GET_REPORT_TIMEOUT_S 1
+#define GET_REPORT_TIMEOUT_S 3
 #define CALIBRATION_TIMEOUT_S 10
 #define COMMAND_TIMEOUT_100MS 20
 
@@ -115,6 +110,7 @@
 #define CONTROL_63_SIZE 1
 #define CONTROL_64_67_SIZE 4
 #define CONTROL_68_73_SIZE 8
+#define CONTROL_70_73_SIZE 6
 #define CONTROL_74_SIZE 2
 #define CONTROL_75_SIZE 1
 #define CONTROL_76_SIZE 1
@@ -213,195 +209,44 @@
 #define CONTROL_186_SIZE 1
 #define CONTROL_187_SIZE 1
 #define CONTROL_188_SIZE 1
-#define CONTROL_196_SIZE 1
-#define CONTROL_218_SIZE 1
-#define CONTROL_223_SIZE 1
 
 #define HIGH_RESISTANCE_DATA_SIZE 6
 #define FULL_RAW_CAP_MIN_MAX_DATA_SIZE 4
 #define TRX_OPEN_SHORT_DATA_SIZE 7
 
-/* tddi f54 test reporting + */
-
-
-#define F54_POLLING_GET_REPORT
-
-/*
-#define F54_SHOW_MAX_MIN
-*/
-
-/* test limit config */
-
-#define TX_NUM_DEFAULT 18
-#define RX_NUM_DEFAULT 32
-
-extern int tp_flag;
-
-static short tddi_full_raw_limit_lower[TX_NUM_DEFAULT * RX_NUM_DEFAULT] = {1689, 1584, 1596, 1620, 1614, 1596, 1620, 1595, 1585, 1606, 1600, 1614, 1678, 1619, 1599, 1696, 1655, 1660, 1664, 1648, 1630, 1685, 1645, 1625, 1688, 1662, 1637, 1677, 1654, 1624, 1677, 1701,
-1611, 1491, 1501, 1528, 1523, 1499, 1528, 1495, 1491, 1509, 1504, 1511, 1580, 1513, 1483, 1572, 1534, 1538, 1544, 1533, 1508, 1580, 1520, 1497, 1558, 1531, 1502, 1552, 1528, 1495, 1545, 1528,
-1614, 1497, 1506, 1534, 1528, 1505, 1535, 1503, 1498, 1516, 1511, 1516, 1585, 1518, 1488, 1577, 1536, 1540, 1544, 1528, 1509, 1572, 1519, 1496, 1551, 1529, 1499, 1555, 1526, 1494, 1540, 1519,
-1629, 1518, 1511, 1548, 1539, 1512, 1546, 1513, 1504, 1529, 1518, 1522, 1590, 1525, 1493, 1586, 1538, 1540, 1548, 1529, 1509, 1570, 1520, 1494, 1550, 1529, 1498, 1555, 1525, 1492, 1537, 1516,
-1637, 1523, 1516, 1555, 1547, 1517, 1554, 1523, 1510, 1533, 1527, 1526, 1594, 1533, 1497, 1593, 1540, 1538, 1546, 1532, 1508, 1568, 1524, 1493, 1549, 1532, 1497, 1554, 1529, 1489, 1542, 1522,
-1641, 1528, 1521, 1560, 1553, 1523, 1561, 1528, 1515, 1539, 1533, 1529, 1596, 1536, 1496, 1593, 1541, 1538, 1545, 1532, 1508, 1573, 1524, 1492, 1553, 1531, 1496, 1552, 1527, 1487, 1538, 1522,
-1648, 1534, 1525, 1566, 1559, 1527, 1564, 1531, 1517, 1538, 1532, 1528, 1596, 1535, 1495, 1592, 1540, 1537, 1545, 1532, 1507, 1572, 1525, 1493, 1553, 1531, 1496, 1551, 1526, 1486, 1538, 1524,
-1621, 1527, 1528, 1579, 1561, 1527, 1564, 1532, 1516, 1541, 1532, 1529, 1597, 1535, 1495, 1591, 1540, 1536, 1545, 1531, 1508, 1571, 1525, 1493, 1552, 1532, 1497, 1550, 1525, 1484, 1538, 1533,
-1638, 1522, 1532, 1562, 1552, 1531, 1561, 1527, 1519, 1540, 1530, 1531, 1600, 1532, 1496, 1588, 1537, 1537, 1546, 1526, 1510, 1567, 1523, 1494, 1554, 1529, 1499, 1547, 1513, 1486, 1509, 1541,
-1566, 1510, 1503, 1515, 1501, 1563, 1527, 1533, 1573, 1523, 1521, 1560, 1567, 1486, 1554, 1552, 1532, 1556, 1519, 1491, 1546, 1540, 1498, 1531, 1518, 1504, 1534, 1489, 1502, 1550, 1498, 1539,
-1577, 1507, 1530, 1526, 1498, 1565, 1531, 1530, 1573, 1528, 1517, 1557, 1571, 1482, 1553, 1555, 1528, 1556, 1521, 1486, 1542, 1543, 1495, 1531, 1519, 1501, 1540, 1504, 1500, 1572, 1513, 1512,
-1567, 1500, 1524, 1519, 1494, 1562, 1530, 1530, 1573, 1527, 1516, 1556, 1570, 1481, 1553, 1554, 1528, 1556, 1519, 1487, 1542, 1543, 1496, 1531, 1520, 1502, 1538, 1503, 1502, 1564, 1520, 1507,
-1556, 1493, 1517, 1512, 1488, 1555, 1523, 1525, 1568, 1525, 1515, 1556, 1569, 1482, 1553, 1554, 1528, 1557, 1519, 1487, 1544, 1544, 1496, 1532, 1520, 1503, 1539, 1504, 1504, 1567, 1522, 1509,
-1552, 1487, 1511, 1508, 1483, 1546, 1518, 1519, 1556, 1521, 1512, 1552, 1568, 1481, 1554, 1555, 1531, 1561, 1522, 1490, 1547, 1547, 1499, 1535, 1522, 1506, 1542, 1505, 1507, 1570, 1526, 1510,
-1540, 1481, 1501, 1495, 1478, 1538, 1506, 1512, 1552, 1509, 1507, 1549, 1560, 1478, 1550, 1549, 1533, 1559, 1519, 1492, 1549, 1545, 1501, 1535, 1522, 1507, 1543, 1503, 1508, 1573, 1522, 1508,
-1532, 1474, 1494, 1489, 1471, 1532, 1500, 1507, 1543, 1502, 1503, 1543, 1555, 1475, 1544, 1546, 1535, 1559, 1521, 1495, 1551, 1546, 1504, 1533, 1520, 1510, 1542, 1501, 1509, 1567, 1513, 1510,
-1529, 1470, 1486, 1483, 1466, 1525, 1493, 1500, 1541, 1498, 1499, 1549, 1557, 1471, 1540, 1543, 1533, 1558, 1521, 1497, 1552, 1549, 1505, 1535, 1522, 1512, 1543, 1500, 1510, 1567, 1512, 1518,
-1635, 1589, 1600, 1595, 1577, 1635, 1602, 1614, 1652, 1610, 1612, 1651, 1665, 1589, 1659, 1663, 1656, 1677, 1631, 1606, 1656, 1655, 1613, 1644, 1631, 1622, 1650, 1604, 1615, 1670, 1618, 1636
-};
-
-static short tddi_full_raw_limit_upper[TX_NUM_DEFAULT * RX_NUM_DEFAULT] = {3508, 3291, 3315, 3365, 3352, 3315, 3365, 3313, 3293, 3337, 3324, 3352, 3485, 3363, 3321, 3523, 3438, 3449, 3456, 3424, 3386, 3500, 3416, 3376, 3507, 3452, 3401, 3484, 3435, 3373, 3483, 3533,
-3346, 3098, 3119, 3175, 3163, 3114, 3173, 3106, 3097, 3134, 3124, 3139, 3283, 3143, 3082, 3266, 3186, 3194, 3208, 3184, 3132, 3282, 3157, 3109, 3237, 3180, 3120, 3223, 3173, 3106, 3210, 3173,
-3353, 3110, 3129, 3187, 3175, 3126, 3189, 3122, 3111, 3149, 3138, 3149, 3292, 3154, 3092, 3275, 3191, 3199, 3208, 3175, 3136, 3265, 3155, 3107, 3221, 3176, 3115, 3230, 3170, 3104, 3198, 3156,
-3384, 3153, 3139, 3217, 3197, 3140, 3211, 3144, 3124, 3176, 3154, 3161, 3303, 3167, 3102, 3295, 3195, 3198, 3216, 3177, 3134, 3260, 3157, 3104, 3220, 3175, 3113, 3229, 3167, 3100, 3192, 3149,
-3400, 3164, 3150, 3230, 3213, 3152, 3229, 3163, 3138, 3184, 3172, 3171, 3310, 3185, 3109, 3310, 3199, 3195, 3211, 3182, 3132, 3256, 3167, 3101, 3218, 3183, 3110, 3228, 3176, 3093, 3204, 3161,
-3409, 3174, 3159, 3240, 3226, 3163, 3243, 3174, 3146, 3197, 3184, 3177, 3316, 3190, 3108, 3308, 3200, 3195, 3210, 3182, 3133, 3267, 3165, 3099, 3225, 3180, 3107, 3225, 3172, 3088, 3196, 3163,
-3424, 3187, 3169, 3253, 3238, 3171, 3249, 3180, 3150, 3195, 3183, 3175, 3315, 3188, 3106, 3307, 3199, 3192, 3209, 3182, 3131, 3266, 3167, 3101, 3226, 3181, 3108, 3222, 3170, 3086, 3194, 3166,
-3367, 3172, 3174, 3280, 3244, 3172, 3248, 3181, 3150, 3201, 3183, 3175, 3318, 3189, 3105, 3306, 3198, 3191, 3210, 3180, 3132, 3263, 3168, 3101, 3225, 3182, 3109, 3221, 3169, 3084, 3195, 3185,
-3402, 3161, 3181, 3245, 3225, 3179, 3243, 3173, 3156, 3199, 3178, 3179, 3324, 3183, 3108, 3298, 3192, 3194, 3211, 3170, 3136, 3255, 3163, 3104, 3228, 3176, 3114, 3213, 3143, 3086, 3135, 3201,
-3254, 3137, 3123, 3148, 3117, 3247, 3172, 3185, 3267, 3164, 3159, 3241, 3254, 3086, 3228, 3224, 3182, 3233, 3155, 3097, 3211, 3199, 3113, 3180, 3154, 3125, 3187, 3092, 3121, 3220, 3112, 3196,
-3275, 3130, 3179, 3169, 3111, 3251, 3180, 3178, 3268, 3174, 3150, 3234, 3263, 3078, 3226, 3231, 3173, 3232, 3159, 3087, 3204, 3205, 3106, 3179, 3155, 3119, 3198, 3125, 3116, 3265, 3143, 3140,
-3256, 3116, 3167, 3156, 3104, 3246, 3178, 3178, 3268, 3173, 3149, 3233, 3262, 3077, 3226, 3227, 3173, 3233, 3156, 3088, 3203, 3206, 3108, 3180, 3157, 3120, 3196, 3123, 3120, 3249, 3158, 3131,
-3232, 3102, 3151, 3142, 3091, 3231, 3164, 3168, 3258, 3167, 3147, 3232, 3260, 3078, 3226, 3228, 3175, 3234, 3156, 3090, 3207, 3208, 3108, 3183, 3157, 3123, 3197, 3124, 3124, 3255, 3162, 3135,
-3224, 3089, 3139, 3132, 3081, 3212, 3153, 3156, 3233, 3160, 3141, 3224, 3258, 3077, 3228, 3230, 3181, 3242, 3161, 3095, 3213, 3213, 3113, 3189, 3163, 3129, 3204, 3127, 3131, 3261, 3169, 3137,
-3199, 3076, 3117, 3106, 3070, 3195, 3129, 3142, 3224, 3136, 3131, 3217, 3241, 3070, 3220, 3218, 3185, 3239, 3156, 3099, 3218, 3209, 3117, 3189, 3161, 3131, 3204, 3123, 3132, 3267, 3162, 3133,
-3183, 3063, 3104, 3094, 3057, 3182, 3115, 3131, 3205, 3121, 3123, 3204, 3229, 3064, 3207, 3211, 3188, 3239, 3160, 3106, 3222, 3212, 3124, 3184, 3158, 3137, 3203, 3119, 3135, 3256, 3142, 3137,
-3176, 3053, 3086, 3080, 3046, 3168, 3101, 3116, 3201, 3112, 3114, 3218, 3235, 3056, 3198, 3205, 3185, 3236, 3160, 3109, 3224, 3217, 3127, 3189, 3163, 3141, 3205, 3116, 3136, 3254, 3142, 3154,
-3395, 3300, 3324, 3314, 3276, 3397, 3327, 3353, 3431, 3343, 3348, 3430, 3459, 3301, 3445, 3455, 3440, 3483, 3388, 3335, 3440, 3437, 3352, 3414, 3389, 3368, 3427, 3331, 3354, 3468, 3362, 3399
-};
-
-static short tddi_full_raw_limit_lower_shenchao[TX_NUM_DEFAULT * RX_NUM_DEFAULT] = {1779, 1717, 1680, 1665, 1701, 1674, 1664, 1695, 1668, 1667, 1697, 1668, 1656, 1659, 1619, 1616, 1622, 1602, 1574, 1624, 1596, 1571, 1597, 1570, 1600, 1604, 1594, 1571, 1611, 1569, 1568, 1680,
-1534, 1527, 1503, 1491, 1527, 1500, 1494, 1525, 1499, 1500, 1550, 1501, 1500, 1514, 1495, 1504, 1510, 1495, 1468, 1526, 1492, 1471, 1495, 1472, 1499, 1508, 1495, 1477, 1519, 1472, 1471, 1582,
-1500, 1512, 1495, 1486, 1526, 1493, 1489, 1517, 1497, 1499, 1541, 1503, 1497, 1519, 1500, 1511, 1519, 1503, 1478, 1538, 1503, 1482, 1510, 1484, 1514, 1525, 1510, 1494, 1535, 1486, 1483, 1598,
-1489, 1502, 1487, 1480, 1521, 1488, 1487, 1515, 1494, 1498, 1537, 1500, 1496, 1523, 1501, 1513, 1529, 1508, 1485, 1545, 1508, 1490, 1522, 1490, 1522, 1531, 1514, 1502, 1547, 1488, 1500, 1611,
-1492, 1504, 1479, 1481, 1515, 1483, 1487, 1511, 1490, 1501, 1532, 1497, 1497, 1519, 1498, 1515, 1539, 1513, 1496, 1553, 1515, 1502, 1530, 1498, 1534, 1545, 1523, 1514, 1558, 1498, 1509, 1627,
-1489, 1495, 1472, 1474, 1509, 1478, 1482, 1511, 1486, 1496, 1535, 1493, 1494, 1516, 1494, 1511, 1535, 1509, 1494, 1551, 1513, 1502, 1531, 1498, 1534, 1546, 1521, 1513, 1556, 1494, 1506, 1626,
-1489, 1492, 1468, 1470, 1505, 1474, 1478, 1507, 1483, 1492, 1530, 1489, 1490, 1510, 1490, 1507, 1531, 1506, 1491, 1548, 1510, 1500, 1528, 1498, 1536, 1549, 1526, 1520, 1563, 1500, 1515, 1636,
-1488, 1488, 1465, 1466, 1501, 1471, 1476, 1504, 1480, 1491, 1528, 1488, 1488, 1507, 1488, 1505, 1529, 1505, 1490, 1545, 1508, 1498, 1528, 1496, 1533, 1544, 1522, 1519, 1574, 1502, 1506, 1607,
-1477, 1458, 1466, 1452, 1496, 1472, 1471, 1504, 1483, 1488, 1526, 1493, 1487, 1515, 1502, 1516, 1544, 1526, 1507, 1568, 1533, 1518, 1550, 1523, 1554, 1568, 1552, 1536, 1584, 1535, 1534, 1665,
-1528, 1486, 1542, 1502, 1519, 1542, 1507, 1508, 1564, 1509, 1522, 1544, 1509, 1508, 1555, 1510, 1527, 1547, 1510, 1533, 1549, 1516, 1510, 1551, 1540, 1519, 1564, 1523, 1527, 1527, 1509, 1620,
-1485, 1472, 1537, 1474, 1510, 1525, 1480, 1489, 1543, 1485, 1506, 1521, 1487, 1493, 1539, 1490, 1517, 1535, 1499, 1532, 1543, 1511, 1513, 1552, 1535, 1522, 1565, 1519, 1537, 1554, 1503, 1628,
-1491, 1484, 1533, 1480, 1512, 1528, 1484, 1492, 1546, 1488, 1508, 1525, 1490, 1496, 1543, 1493, 1519, 1537, 1500, 1534, 1546, 1513, 1515, 1555, 1537, 1524, 1567, 1518, 1532, 1548, 1496, 1617,
-1495, 1490, 1542, 1486, 1517, 1535, 1489, 1497, 1552, 1493, 1512, 1531, 1494, 1500, 1547, 1496, 1521, 1541, 1502, 1535, 1548, 1514, 1514, 1550, 1531, 1516, 1557, 1509, 1522, 1536, 1485, 1599,
-1500, 1499, 1550, 1494, 1524, 1543, 1496, 1504, 1559, 1499, 1518, 1536, 1499, 1505, 1553, 1502, 1525, 1545, 1504, 1537, 1546, 1513, 1513, 1540, 1530, 1513, 1552, 1507, 1520, 1534, 1483, 1596,
-1503, 1500, 1557, 1499, 1528, 1547, 1500, 1506, 1561, 1503, 1517, 1540, 1502, 1503, 1552, 1505, 1517, 1538, 1499, 1526, 1539, 1505, 1498, 1532, 1521, 1498, 1538, 1497, 1504, 1517, 1471, 1576,
-1510, 1497, 1557, 1505, 1529, 1550, 1506, 1507, 1561, 1508, 1519, 1542, 1506, 1505, 1551, 1505, 1512, 1529, 1494, 1519, 1532, 1500, 1491, 1524, 1518, 1493, 1534, 1493, 1499, 1514, 1468, 1570,
-1534, 1502, 1560, 1508, 1533, 1553, 1510, 1510, 1563, 1509, 1518, 1539, 1502, 1500, 1544, 1499, 1503, 1520, 1486, 1516, 1531, 1488, 1481, 1514, 1505, 1479, 1519, 1479, 1486, 1497, 1458, 1557,
-1661, 1615, 1668, 1618, 1645, 1663, 1621, 1620, 1672, 1619, 1626, 1645, 1613, 1610, 1653, 1609, 1614, 1650, 1638, 1663, 1672, 1642, 1633, 1666, 1660, 1630, 1670, 1632, 1638, 1653, 1626, 1761
-};
-
-static short tddi_full_raw_limit_upper_shenchao[TX_NUM_DEFAULT * RX_NUM_DEFAULT] = {3696, 3566, 3490, 3458, 3533, 3477, 3456, 3521, 3465, 3463, 3526, 3466, 3440, 3446, 3363, 3358, 3369, 3327, 3270, 3373, 3316, 3263, 3318, 3261, 3323, 3332, 3311, 3263, 3347, 3259, 3258, 3491,
-3187, 3171, 3121, 3098, 3172, 3115, 3103, 3168, 3114, 3115, 3219, 3118, 3115, 3145, 3105, 3125, 3136, 3105, 3049, 3169, 3099, 3055, 3106, 3057, 3113, 3134, 3106, 3067, 3156, 3058, 3055, 3286,
-3116, 3141, 3105, 3086, 3169, 3101, 3094, 3152, 3109, 3114, 3201, 3123, 3109, 3156, 3116, 3139, 3155, 3123, 3071, 3195, 3121, 3079, 3136, 3083, 3144, 3168, 3138, 3104, 3189, 3087, 3082, 3320,
-3094, 3121, 3089, 3074, 3159, 3091, 3088, 3147, 3104, 3112, 3192, 3117, 3108, 3163, 3117, 3144, 3176, 3133, 3084, 3208, 3132, 3094, 3161, 3095, 3162, 3181, 3144, 3119, 3213, 3091, 3115, 3347,
-3099, 3124, 3073, 3075, 3148, 3080, 3090, 3139, 3095, 3117, 3183, 3109, 3111, 3156, 3111, 3146, 3196, 3142, 3107, 3226, 3147, 3119, 3178, 3112, 3187, 3209, 3163, 3146, 3236, 3111, 3134, 3380,
-3093, 3106, 3058, 3061, 3135, 3070, 3080, 3140, 3087, 3108, 3189, 3102, 3104, 3148, 3104, 3139, 3188, 3134, 3103, 3223, 3144, 3120, 3181, 3112, 3186, 3211, 3160, 3144, 3232, 3103, 3129, 3378,
-3093, 3099, 3050, 3053, 3126, 3062, 3071, 3131, 3080, 3100, 3178, 3094, 3096, 3137, 3094, 3131, 3181, 3128, 3097, 3215, 3138, 3115, 3175, 3112, 3190, 3217, 3169, 3158, 3246, 3116, 3146, 3399,
-3091, 3091, 3043, 3044, 3118, 3056, 3067, 3123, 3075, 3096, 3173, 3090, 3091, 3131, 3091, 3125, 3177, 3126, 3096, 3209, 3133, 3111, 3174, 3107, 3185, 3208, 3162, 3155, 3269, 3120, 3129, 3339,
-3069, 3029, 3046, 3016, 3108, 3057, 3056, 3125, 3081, 3091, 3170, 3101, 3089, 3147, 3120, 3148, 3207, 3170, 3131, 3256, 3184, 3153, 3220, 3163, 3229, 3256, 3225, 3190, 3290, 3190, 3187, 3458,
-3175, 3086, 3203, 3121, 3156, 3202, 3130, 3133, 3248, 3134, 3162, 3206, 3135, 3133, 3230, 3136, 3173, 3214, 3138, 3184, 3218, 3149, 3136, 3223, 3198, 3155, 3250, 3165, 3171, 3172, 3134, 3366,
-3086, 3057, 3193, 3063, 3136, 3168, 3075, 3092, 3205, 3085, 3128, 3160, 3089, 3102, 3198, 3095, 3151, 3189, 3113, 3183, 3205, 3139, 3143, 3223, 3188, 3162, 3252, 3156, 3193, 3229, 3122, 3381,
-3097, 3082, 3185, 3074, 3140, 3175, 3083, 3099, 3212, 3091, 3133, 3167, 3095, 3107, 3205, 3101, 3155, 3194, 3115, 3186, 3211, 3144, 3148, 3230, 3193, 3166, 3255, 3154, 3182, 3215, 3107, 3360,
-3106, 3095, 3202, 3086, 3152, 3190, 3093, 3110, 3224, 3102, 3142, 3180, 3103, 3115, 3215, 3108, 3160, 3201, 3119, 3190, 3216, 3146, 3144, 3220, 3181, 3148, 3235, 3134, 3162, 3192, 3084, 3322,
-3117, 3114, 3220, 3104, 3166, 3205, 3107, 3124, 3239, 3115, 3152, 3191, 3113, 3126, 3226, 3119, 3169, 3209, 3124, 3192, 3211, 3144, 3143, 3199, 3177, 3144, 3223, 3131, 3158, 3186, 3080, 3316,
-3122, 3117, 3234, 3114, 3173, 3213, 3117, 3128, 3243, 3123, 3151, 3198, 3121, 3123, 3224, 3126, 3152, 3195, 3113, 3169, 3197, 3125, 3112, 3183, 3159, 3112, 3194, 3109, 3123, 3152, 3056, 3273,
-3137, 3110, 3234, 3125, 3177, 3219, 3128, 3130, 3242, 3132, 3155, 3204, 3129, 3126, 3222, 3126, 3140, 3177, 3104, 3155, 3182, 3116, 3097, 3165, 3153, 3101, 3186, 3101, 3114, 3144, 3050, 3260,
-3187, 3119, 3240, 3133, 3185, 3227, 3136, 3136, 3247, 3134, 3154, 3197, 3121, 3116, 3208, 3114, 3122, 3157, 3086, 3148, 3181, 3091, 3075, 3146, 3127, 3072, 3155, 3073, 3086, 3110, 3030, 3235,
-3451, 3355, 3464, 3360, 3416, 3455, 3367, 3366, 3474, 3363, 3378, 3418, 3350, 3345, 3433, 3343, 3352, 3428, 3402, 3455, 3473, 3410, 3392, 3460, 3449, 3386, 3468, 3390, 3403, 3433, 3377, 3657
-};
-
-#define FULL_RAW_CAP_TEST_LIMIT_LOWER 300
-#define FULL_RAW_CAP_TEST_LIMIT_UPPER 60000
-
-#define NOISE_TEST_LIMIT  35
-#define NOISE_TEST_NUM_OF_FRAMES 50
-
-#define EE_SHORT_TEST_LIMIT_PART1  230
-#define EE_SHORT_TEST_LIMIT_PART2  70
-
-#define EE_SHORT_TEST_LIMIT_PART1_SHENCHAO  60
-#define EE_SHORT_TEST_LIMIT_PART2_SHENCHAO  90
-
-#define AMP_OPEN_INT_DUR_ONE 145
-#define AMP_OPEN_INT_DUR_TWO 10
-#define AMP_OPEN_TEST_LIMIT_PHASE1_LOWER 500
-#define AMP_OPEN_TEST_LIMIT_PHASE1_UPPER 3000
-#define AMP_OPEN_TEST_LIMIT_PHASE2_LOWER 70
-#define AMP_OPEN_TEST_LIMIT_PHASE2_UPPER 130
-
-#define NUM_BUTTON 3
-#define ABS_0D_OPEN_FACTOR 15
-#define ABS_0D_OPEN_TEST_LIMIT 30
-
-#define ELEC_OPEN_TEST_TX_ON_COUNT 2
-#define ELEC_OPEN_TEST_RX_ON_COUNT 2
-#define ELEC_OPEN_INT_DUR_ONE 15
-#define ELEC_OPEN_INT_DUR_TWO 25
-#define ELEC_OPEN_TEST_LIMIT_ONE_LOWER 5
-#define ELEC_OPEN_TEST_LIMIT_ONE_UPPER 8000
-#define ELEC_OPEN_TEST_LIMIT_TWO_LOWER 40
-#define ELEC_OPEN_TEST_LIMIT_TWO_UPPER 240
-
-#define ELEC_OPEN_INT_DUR_ONE_SHENCHAO 12
-#define ELEC_OPEN_INT_DUR_TWO_SHENCHAO 50
-#define ELEC_OPEN_TEST_LIMIT_ONE_LOWER_SHENCHAO 382
-#define ELEC_OPEN_TEST_LIMIT_ONE_UPPER_SHENCHAO 2300
-#define ELEC_OPEN_TEST_LIMIT_TWO_LOWER_SHENCHAO 68
-#define ELEC_OPEN_TEST_LIMIT_TWO_UPPER_SHENCHAO 184
-/* tddi f54 test reporting - */
-
-#define _TEST_FAIL 1
-#define _TEST_PASS 0
-
-
-#define concat(a, b) a##b
-
 #define attrify(propname) (&dev_attr_##propname.attr)
 
 #define show_prototype(propname)\
-static ssize_t concat(test_sysfs, _##propname##_show)(\
+static ssize_t propname##_show(\
 		struct device *dev,\
 		struct device_attribute *attr,\
 		char *buf);\
 \
 static struct device_attribute dev_attr_##propname =\
-		__ATTR(propname, S_IRUGO,\
-		concat(test_sysfs, _##propname##_show),\
-		synaptics_rmi4_store_error);
+		__ATTR_RO(propname)
 
 #define store_prototype(propname)\
-static ssize_t concat(test_sysfs, _##propname##_store)(\
+static ssize_t propname##_store(\
 		struct device *dev,\
 		struct device_attribute *attr,\
 		const char *buf, size_t count);\
 \
 static struct device_attribute dev_attr_##propname =\
-		__ATTR(propname, (S_IWUSR | S_IWGRP),\
-		synaptics_rmi4_show_error,\
-		concat(test_sysfs, _##propname##_store));
+		__ATTR_WO(propname)
 
 #define show_store_prototype(propname)\
-static ssize_t concat(test_sysfs, _##propname##_show)(\
+static ssize_t propname##_show(\
 		struct device *dev,\
 		struct device_attribute *attr,\
 		char *buf);\
 \
-static ssize_t concat(test_sysfs, _##propname##_store)(\
+static ssize_t propname##_store(\
 		struct device *dev,\
 		struct device_attribute *attr,\
 		const char *buf, size_t count);\
 \
 static struct device_attribute dev_attr_##propname =\
-		__ATTR(propname, (S_IRUGO | S_IWUSR | S_IWGRP),\
-		concat(test_sysfs, _##propname##_show),\
-		concat(test_sysfs, _##propname##_store));
+		__ATTR_RW(propname)
 
 #define disable_cbc(ctrl_num)\
 do {\
@@ -455,12 +300,7 @@ enum f54_report_types {
 	F54_ABS_HYBRID_RAW_CAP = 63,
 	F54_AMP_FULL_RAW_CAP = 78,
 	F54_AMP_RAW_ADC = 83,
-	/* tddi f54 test reporting + */
 	F54_FULL_RAW_CAP_TDDI = 92,
-	F54_NOISE_TDDI = 94,
-	F54_EE_SHORT_TDDI = 95,
-	/* tddi f54 test reporting - */
-
 	INVALID_REPORT_TYPE = -1,
 };
 
@@ -899,15 +739,10 @@ struct f54_query_50 {
 	};
 };
 
-/* tddi f54 test reporting + */
 struct f54_query_51 {
 	union {
 		struct {
-			unsigned char f54_query51_b0:1;
-			unsigned char has_ctrl196:1;
-			unsigned char f54_query51_b2:1;
-			unsigned char f54_query51_b3:1;
-			unsigned char f54_query51_b4:1;
+			unsigned char f54_query51_b0__4:5;
 			unsigned char has_query53_query54_ctrl198:1;
 			unsigned char has_ctrl199:1;
 			unsigned char has_query55:1;
@@ -921,7 +756,7 @@ struct f54_query_55 {
 		struct {
 			unsigned char has_query56:1;
 			unsigned char has_data33_data34:1;
-			unsigned char has_alternate_report_rate:1;
+			unsigned char has_alt_report_rate:1;
 			unsigned char has_ctrl200:1;
 			unsigned char has_ctrl201_ctrl202:1;
 			unsigned char has_ctrl203:1;
@@ -956,7 +791,7 @@ struct f54_query_58 {
 			unsigned char has_ctrl211:1;
 			unsigned char has_ctrl212:1;
 			unsigned char has_hybrid_abs_tx_axis_filtering:1;
-			unsigned char f54_query58_b5:1;
+			unsigned char has_hybrid_abs_tx_interpolation:1;
 			unsigned char has_ctrl213:1;
 			unsigned char has_query61:1;
 		} __packed;
@@ -969,9 +804,11 @@ struct f54_query_61 {
 		struct {
 			unsigned char has_ctrl214:1;
 			unsigned char has_ctrl215_query62_query63:1;
-			unsigned char f54_query61_b2__4:3;
-			unsigned char has_ctrl218:1;
-			unsigned char has_hybrid_abs_buttons:1;
+			unsigned char f54_query_61_b2:1;
+			unsigned char has_ctrl216:1;
+			unsigned char has_ctrl217:1;
+			unsigned char has_misc_host_ctrl:1;
+			unsigned char hybrid_abs_buttons:1;
 			unsigned char has_query64:1;
 		} __packed;
 		unsigned char data[1];
@@ -981,9 +818,10 @@ struct f54_query_61 {
 struct f54_query_64 {
 	union {
 		struct {
-			unsigned char f54_query64_b0:1;
+			unsigned char has_ctrl101_sub1:1;
 			unsigned char has_ctrl220:1;
-			unsigned char f54_query64_b2__3:2;
+			unsigned char has_ctrl221:1;
+			unsigned char has_ctrl222:1;
 			unsigned char has_ctrl219_sub1:1;
 			unsigned char has_ctrl103_sub3:1;
 			unsigned char has_ctrl224_ctrl226_ctrl227:1;
@@ -996,7 +834,9 @@ struct f54_query_64 {
 struct f54_query_65 {
 	union {
 		struct {
-			unsigned char f54_query65_b0__4:5;
+			unsigned char f54_query_65_b0__1:2;
+			unsigned char has_ctrl101_sub2:1;
+			unsigned char f54_query_65_b3__4:2;
 			unsigned char has_query66_ctrl231:1;
 			unsigned char has_ctrl232:1;
 			unsigned char has_query67:1;
@@ -1008,10 +848,12 @@ struct f54_query_65 {
 struct f54_query_67 {
 	union {
 		struct {
-			unsigned char has_abs_doze_spatial_filter_enable:1;
-			unsigned char has_abs_doze_average_filter_enable:1;
+			unsigned char has_abs_doze_spatial_filter_en:1;
+			unsigned char has_abs_doze_avg_filter_enhancement_en:1;
 			unsigned char has_single_display_pulse:1;
-			unsigned char f54_query67_b3__6:4;
+			unsigned char f54_query_67_b3__4:2;
+			unsigned char has_ctrl235_ctrl236:1;
+			unsigned char f54_query_67_b6:1;
 			unsigned char has_query68:1;
 		} __packed;
 		unsigned char data[1];
@@ -1021,9 +863,13 @@ struct f54_query_67 {
 struct f54_query_68 {
 	union {
 		struct {
-			unsigned char f54_query68_b0__4:5;
+			unsigned char f54_query_68_b0:1;
+			unsigned char has_ctrl238:1;
+			unsigned char has_ctrl238_sub1:1;
+			unsigned char has_ctrl238_sub2:1;
+			unsigned char has_ctrl239:1;
 			unsigned char has_freq_filter_bw_ext:1;
-			unsigned char f54_query68_b6:1;
+			unsigned char is_tddi_hic:1;
 			unsigned char has_query69:1;
 		} __packed;
 		unsigned char data[1];
@@ -1037,13 +883,11 @@ struct f54_query_69 {
 			unsigned char has_ctrl240_sub1_sub2:1;
 			unsigned char has_ctrl240_sub3:1;
 			unsigned char has_ctrl240_sub4:1;
-			unsigned char burst_mode_report_type_enabled:1;
-			unsigned char f54_query69_b5__7:3;
+			unsigned char f54_query_69_b4__7:4;
 		} __packed;
 		unsigned char data[1];
 	};
 };
-/* tddi f54 test reporting - */
 
 struct f54_data_31 {
 	union {
@@ -1135,50 +979,6 @@ struct f54_control_88 {
 	};
 };
 
-/* tddi f54 test reporting + */
-struct f54_control_91 {
-	union {
-		struct {
-			unsigned char reflo_transcap_capacitance;
-			unsigned char refhi_transcap_capacitance;
-			unsigned char receiver_feedback_capacitance;
-			unsigned char reference_receiver_feedback_capacitance;
-			unsigned char gain_ctrl;
-		} __packed;
-		struct {
-			unsigned char data[5];
-			unsigned short address;
-		} __packed;
-	};
-};
-
-struct f54_control_96 {
-	union {
-		struct {
-			unsigned char cbc_transcap[64];
-		} __packed;
-		struct {
-			unsigned char data[64];
-			unsigned short address;
-		} __packed;
-	};
-};
-
-struct f54_control_99 {
-	union {
-		struct {
-			unsigned char integration_duration_lsb;
-			unsigned char integration_duration_msb;
-			unsigned char reset_duration;
-		} __packed;
-		struct {
-			unsigned char data[3];
-			unsigned short address;
-		} __packed;
-	};
-};
-/* tddi f54 test reporting - */
-
 struct f54_control_110 {
 	union {
 		struct {
@@ -1216,21 +1016,6 @@ struct f54_control_149 {
 	};
 };
 
-struct f54_control_182 {
-	union {
-		struct {
-			unsigned char cbc_timing_ctrl_tx_lsb;
-			unsigned char cbc_timing_ctrl_tx_msb;
-			unsigned char cbc_timing_ctrl_rx_lsb;
-			unsigned char cbc_timing_ctrl_rx_msb;
-		} __packed;
-		struct {
-			unsigned char data[4];
-			unsigned short address;
-		} __packed;
-	};
-};
-
 struct f54_control_188 {
 	union {
 		struct {
@@ -1248,49 +1033,25 @@ struct f54_control_188 {
 	};
 };
 
-struct f54_control_223 {
-	union {
-		struct {
-			unsigned char voltages_for_0d:8;
-		} __packed;
-		struct {
-			unsigned char data[1];
-			unsigned short address;
-		} __packed;
-	};
-};
-
 struct f54_control {
 	struct f54_control_7 *reg_7;
 	struct f54_control_41 *reg_41;
 	struct f54_control_57 *reg_57;
 	struct f54_control_86 *reg_86;
 	struct f54_control_88 *reg_88;
-	struct f54_control_91 *reg_91;
-	struct f54_control_96 *reg_96;
-	struct f54_control_99 *reg_99;
 	struct f54_control_110 *reg_110;
 	struct f54_control_149 *reg_149;
-	struct f54_control_182 *reg_182;
 	struct f54_control_188 *reg_188;
-	struct f54_control_223 *reg_223;
 };
 
 struct synaptics_rmi4_f54_handle {
-	bool is_burst;
 	bool no_auto_cal;
 	bool skip_preparation;
-	bool burst_read;
 	unsigned char status;
 	unsigned char intr_mask;
 	unsigned char intr_reg_num;
 	unsigned char tx_assigned;
 	unsigned char rx_assigned;
-	/* tddi f54 test reporting + */
-	unsigned char swap_sensor_side;
-	unsigned char left_mux_size;
-	unsigned char right_mux_size;
-	/*tddi f54 test reporting - */
 	unsigned char *report_data;
 	unsigned short query_base_addr;
 	unsigned short control_base_addr;
@@ -1325,7 +1086,6 @@ struct synaptics_rmi4_f54_handle {
 	struct f54_query_49 query_49;
 	struct f54_query_50 query_50;
 	struct f54_query_51 query_51;
-	/* tddi f54 test reporting + */
 	struct f54_query_55 query_55;
 	struct f54_query_57 query_57;
 	struct f54_query_58 query_58;
@@ -1335,7 +1095,6 @@ struct synaptics_rmi4_f54_handle {
 	struct f54_query_67 query_67;
 	struct f54_query_68 query_68;
 	struct f54_query_69 query_69;
-	/* tddi f54 test reporting - */
 	struct f54_data_31 data_31;
 	struct f54_control control;
 	struct mutex status_mutex;
@@ -1518,7 +1277,6 @@ struct f55_control_43 {
 struct synaptics_rmi4_f55_handle {
 	bool amp_sensor;
 	bool extended_amp;
-	bool extended_amp_btn;
 	bool has_force;
 	unsigned char size_of_column2mux;
 	unsigned char afe_mux_offset;
@@ -1642,35 +1400,27 @@ struct synaptics_rmi4_f21_handle {
 	unsigned short command_base_addr;
 };
 
-show_prototype(num_of_mapped_tx)
-show_prototype(num_of_mapped_rx)
-show_prototype(tx_mapping)
-show_prototype(rx_mapping)
-show_prototype(num_of_mapped_force_tx)
-show_prototype(num_of_mapped_force_rx)
-show_prototype(force_tx_mapping)
-show_prototype(force_rx_mapping)
-show_prototype(report_size)
-show_prototype(status)
-show_prototype(ito_test_result)
-store_prototype(do_preparation)
-store_prototype(force_cal)
-store_prototype(get_report)
-store_prototype(resume_touch)
-store_prototype(do_afe_calibration)
-show_store_prototype(report_type)
-show_store_prototype(fifoindex)
-show_store_prototype(no_auto_cal)
-show_store_prototype(read_report)
-/* tddi f54 test reporting + */
-store_prototype(tddi_full_raw)
-store_prototype(tddi_noise)
-store_prototype(tddi_ee_short)
-show_store_prototype(tddi_amp_open)
-store_prototype(tddi_amp_electrode_open)
+show_prototype(num_of_mapped_tx);
+show_prototype(num_of_mapped_rx);
+show_prototype(tx_mapping);
+show_prototype(rx_mapping);
+show_prototype(num_of_mapped_force_tx);
+show_prototype(num_of_mapped_force_rx);
+show_prototype(force_tx_mapping);
+show_prototype(force_rx_mapping);
+show_prototype(report_size);
+show_prototype(status);
 
-show_store_prototype(burst)
-/* tddi f54 test reporting - */
+store_prototype(do_preparation);
+store_prototype(force_cal);
+store_prototype(get_report);
+store_prototype(resume_touch);
+store_prototype(do_afe_calibration);
+
+show_store_prototype(report_type);
+show_store_prototype(fifoindex);
+show_store_prototype(no_auto_cal);
+show_store_prototype(read_report);
 
 static struct attribute *attrs[] = {
 	attrify(num_of_mapped_tx),
@@ -1683,7 +1433,6 @@ static struct attribute *attrs[] = {
 	attrify(force_rx_mapping),
 	attrify(report_size),
 	attrify(status),
-	attrify(ito_test_result),
 	attrify(do_preparation),
 	attrify(force_cal),
 	attrify(get_report),
@@ -1693,15 +1442,6 @@ static struct attribute *attrs[] = {
 	attrify(fifoindex),
 	attrify(no_auto_cal),
 	attrify(read_report),
-	/* tddi f54 test reporting + */
-	attrify(tddi_full_raw),
-	attrify(tddi_noise),
-	attrify(tddi_ee_short),
-	attrify(tddi_amp_open),
-	attrify(tddi_amp_electrode_open),
-
-	attrify(burst),
-	/* tddi f54 test reporting - */
 	NULL,
 };
 
@@ -1716,7 +1456,7 @@ static ssize_t test_sysfs_data_read(struct file *data_file,
 static struct bin_attribute test_report_data = {
 	.attr = {
 		.name = "report_data",
-		.mode = S_IRUGO,
+		.mode = 0444,
 	},
 	.size = 0,
 	.read = test_sysfs_data_read,
@@ -1725,35 +1465,6 @@ static struct bin_attribute test_report_data = {
 static struct synaptics_rmi4_f54_handle *f54;
 static struct synaptics_rmi4_f55_handle *f55;
 static struct synaptics_rmi4_f21_handle *f21;
-
-
-/* tddi f54 test reporting + */
-
-
-
-static unsigned char *g_tddi_full_raw_data_output;
-
-
-
-static signed short *g_tddi_noise_data_output;
-
-
-
-static unsigned char *g_tddi_ee_short_data_output;
-
-
-
-static unsigned char *g_tddi_amp_open_data_output;
-
-
-
-
-
-
-
-static bool g_flag_readrt_err;
-
-/* tddi f54 test reporting - */
 
 DECLARE_COMPLETION(test_remove_complete);
 
@@ -1786,13 +1497,8 @@ static bool test_report_type_valid(enum f54_report_types report_type)
 	case F54_ABS_HYBRID_RAW_CAP:
 	case F54_AMP_FULL_RAW_CAP:
 	case F54_AMP_RAW_ADC:
-	/* tddi f54 test reporting + */
 	case F54_FULL_RAW_CAP_TDDI:
-	case F54_NOISE_TDDI:
-	case F54_EE_SHORT_TDDI:
-	/* tddi f54 test reporting - */
 		return true;
-		break;
 	default:
 		f54->report_type = INVALID_REPORT_TYPE;
 		f54->report_size = 0;
@@ -1819,22 +1525,9 @@ static void test_set_report_size(void)
 	case F54_SENSOR_SPEED:
 	case F54_AMP_FULL_RAW_CAP:
 	case F54_AMP_RAW_ADC:
-	/* tddi f54 test reporting + */
 	case F54_FULL_RAW_CAP_TDDI:
-		if (f55->extended_amp_btn) {
-			tx += 1;
-		}
 		f54->report_size = 2 * tx * rx;
 		break;
-	case F54_NOISE_TDDI:
-	/* tddi f54 test reporting - */
-		f54->report_size = 2 * tx * rx;
-		break;
-	/* tddi f54 test reporting +  */
-	case F54_EE_SHORT_TDDI:
-		f54->report_size = 2 * 2 * tx * rx;
-		break;
-	/* tddi f54 test reporting - */
 	case F54_HIGH_RESISTANCE:
 		f54->report_size = HIGH_RESISTANCE_DATA_SIZE;
 		break;
@@ -1896,8 +1589,6 @@ static void test_set_report_size(void)
 	default:
 		f54->report_size = 0;
 	}
-
-	return;
 }
 
 static int test_set_interrupt(bool set)
@@ -2060,11 +1751,7 @@ static int test_do_preparation(void)
 	case F54_ABS_DELTA_CAP:
 	case F54_ABS_HYBRID_DELTA_CAP:
 	case F54_ABS_HYBRID_RAW_CAP:
-	/* tddi f54 test reporting + */
 	case F54_FULL_RAW_CAP_TDDI:
-	case F54_NOISE_TDDI:
-	case F54_EE_SHORT_TDDI:
-	/* tddi f54 test reporting - */
 		break;
 	case F54_AMP_RAW_ADC:
 		if (f54->query_49.has_ctrl188) {
@@ -2321,8 +2008,6 @@ static void test_timeout_work(struct work_struct *work)
 
 exit:
 	mutex_unlock(&f54->status_mutex);
-
-	return;
 }
 
 static enum hrtimer_restart test_get_report_timeout(struct hrtimer *timer)
@@ -2332,19 +2017,19 @@ static enum hrtimer_restart test_get_report_timeout(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
-static ssize_t test_sysfs_num_of_mapped_tx_show(struct device *dev,
+static ssize_t num_of_mapped_tx_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->tx_assigned);
 }
 
-static ssize_t test_sysfs_num_of_mapped_rx_show(struct device *dev,
+static ssize_t num_of_mapped_rx_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->rx_assigned);
 }
 
-static ssize_t test_sysfs_tx_mapping_show(struct device *dev,
+static ssize_t tx_mapping_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int cnt;
@@ -2374,7 +2059,7 @@ static ssize_t test_sysfs_tx_mapping_show(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_rx_mapping_show(struct device *dev,
+static ssize_t rx_mapping_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int cnt;
@@ -2404,19 +2089,19 @@ static ssize_t test_sysfs_rx_mapping_show(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_num_of_mapped_force_tx_show(struct device *dev,
+static ssize_t num_of_mapped_force_tx_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f21->tx_assigned);
 }
 
-static ssize_t test_sysfs_num_of_mapped_force_rx_show(struct device *dev,
+static ssize_t num_of_mapped_force_rx_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f21->rx_assigned);
 }
 
-static ssize_t test_sysfs_force_tx_mapping_show(struct device *dev,
+static ssize_t force_tx_mapping_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int cnt;
@@ -2464,7 +2149,7 @@ static ssize_t test_sysfs_force_tx_mapping_show(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_force_rx_mapping_show(struct device *dev,
+static ssize_t force_rx_mapping_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int cnt;
@@ -2512,13 +2197,13 @@ static ssize_t test_sysfs_force_rx_mapping_show(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_report_size_show(struct device *dev,
+static ssize_t report_size_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->report_size);
 }
 
-static ssize_t test_sysfs_status_show(struct device *dev,
+static ssize_t status_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int retval;
@@ -2532,7 +2217,7 @@ static ssize_t test_sysfs_status_show(struct device *dev,
 	return retval;
 }
 
-static ssize_t test_sysfs_do_preparation_store(struct device *dev,
+static ssize_t do_preparation_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2568,7 +2253,7 @@ exit:
 	return retval;
 }
 
-static ssize_t test_sysfs_force_cal_store(struct device *dev,
+static ssize_t force_cal_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2604,90 +2289,7 @@ exit:
 	return retval;
 }
 
-/* tddi f54 test reporting + */
-#ifdef F54_POLLING_GET_REPORT
-static ssize_t test_sysfs_get_report_polling(void)
-{
-	int retval = 0;
-	unsigned char report_index[2];
-	unsigned int byte_delay_us;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-	retval = test_wait_for_command_completion();
-	if (retval < 0) {
-		retval = -EIO;
-		f54->status = STATUS_ERROR;
-		return retval;
-	}
-
-	test_set_report_size();
-	if (f54->report_size == 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Report data size = 0\n", __func__);
-		retval = -EIO;
-		f54->status = STATUS_ERROR;
-		return retval;
-	}
-
-	if (f54->data_buffer_size < f54->report_size) {
-		if (f54->data_buffer_size)
-			kfree(f54->report_data);
-		f54->report_data = kzalloc(f54->report_size, GFP_KERNEL);
-		if (!f54->report_data) {
-			dev_err(rmi4_data->pdev->dev.parent,
-					"%s: Failed to alloc mem for data buffer\n", __func__);
-			f54->data_buffer_size = 0;
-			retval = -EIO;
-			f54->status = STATUS_ERROR;
-			return retval;
-		}
-		f54->data_buffer_size = f54->report_size;
-	}
-
-	report_index[0] = 0;
-	report_index[1] = 0;
-
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			f54->data_base_addr + REPORT_INDEX_OFFSET,
-			report_index,
-			sizeof(report_index));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to write report data index\n", __func__);
-		retval = -EIO;
-		f54->status = STATUS_ERROR;
-		return retval;
-	}
-
-	if ((rmi4_data->hw_if->bus_access->type == BUS_SPI) && f54->burst_read && f54->is_burst) {
-		byte_delay_us = rmi4_data->hw_if->board_data->byte_delay_us;
-		rmi4_data->hw_if->board_data->byte_delay_us = 0;
-	}
-
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			f54->data_base_addr + REPORT_DATA_OFFSET,
-			f54->report_data,
-			f54->report_size);
-
-	if ((rmi4_data->hw_if->bus_access->type == BUS_SPI) && f54->burst_read && f54->is_burst)
-		rmi4_data->hw_if->board_data->byte_delay_us = byte_delay_us;
-
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report data\n",
-				__func__);
-		retval = -EIO;
-		f54->status = STATUS_ERROR;
-		return retval;
-	}
-
-	f54->status = STATUS_IDLE;
-	return retval;
-}
-#endif
-/* tddi f54 test reporting - */
-
-static ssize_t test_sysfs_get_report_store(struct device *dev,
+static ssize_t get_report_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2731,20 +2333,6 @@ static ssize_t test_sysfs_get_report_store(struct device *dev,
 		goto exit;
 	}
 
-/* tddi f54 test reporting + */
-#ifdef F54_POLLING_GET_REPORT
-
-	retval = test_sysfs_get_report_polling();
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to get report image\n",
-				__func__);
-		goto exit;
-	}
-
-#else
-/* tddi f54 test reporting - */
-
 	f54->status = STATUS_BUSY;
 	f54->report_size = 0;
 	f54->data_pos = 0;
@@ -2755,15 +2343,13 @@ static ssize_t test_sysfs_get_report_store(struct device *dev,
 
 	retval = count;
 
-#endif
-
 exit:
 	mutex_unlock(&f54->status_mutex);
 
 	return retval;
 }
 
-static ssize_t test_sysfs_resume_touch_store(struct device *dev,
+static ssize_t resume_touch_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2818,10 +2404,6 @@ static ssize_t test_sysfs_resume_touch_store(struct device *dev,
 	case F54_ABS_HYBRID_DELTA_CAP:
 	case F54_ABS_HYBRID_RAW_CAP:
 	case F54_FULL_RAW_CAP_TDDI:
-	/* tddi f54 test reporting + */
-	case F54_NOISE_TDDI:
-	case F54_EE_SHORT_TDDI:
-	/* tddi f54 test reporting - */
 		break;
 	case F54_AMP_RAW_ADC:
 		if (f54->query_49.has_ctrl188) {
@@ -2855,7 +2437,7 @@ static ssize_t test_sysfs_resume_touch_store(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_do_afe_calibration_store(struct device *dev,
+static ssize_t do_afe_calibration_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2884,13 +2466,13 @@ static ssize_t test_sysfs_do_afe_calibration_store(struct device *dev,
 		return count;
 }
 
-static ssize_t test_sysfs_report_type_show(struct device *dev,
+static ssize_t report_type_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->report_type);
 }
 
-static ssize_t test_sysfs_report_type_store(struct device *dev,
+static ssize_t report_type_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2937,7 +2519,7 @@ exit:
 	return retval;
 }
 
-static ssize_t test_sysfs_fifoindex_show(struct device *dev,
+static ssize_t fifoindex_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	int retval;
@@ -2960,7 +2542,7 @@ static ssize_t test_sysfs_fifoindex_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->fifoindex);
 }
 
-static ssize_t test_sysfs_fifoindex_store(struct device *dev,
+static ssize_t fifoindex_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -2990,13 +2572,13 @@ static ssize_t test_sysfs_fifoindex_store(struct device *dev,
 	return count;
 }
 
-static ssize_t test_sysfs_no_auto_cal_show(struct device *dev,
+static ssize_t no_auto_cal_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", f54->no_auto_cal);
 }
 
-static ssize_t test_sysfs_no_auto_cal_store(struct device *dev,
+static ssize_t no_auto_cal_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -3043,13 +2625,7 @@ static ssize_t test_sysfs_no_auto_cal_store(struct device *dev,
 	return count;
 }
 
-static int check_ito_test_flag = 2;
-#ifdef SYNAPTICS_ESD_CHECK
-extern void synaptics_rmi4_esd_work(struct work_struct *work);
-#define SYNAPTICS_ESD_CHECK_CIRCLE 2*HZ
-extern struct synaptics_rmi4_data *rmi4_data;
-#endif
-static ssize_t test_sysfs_read_report_show(struct device *dev,
+static ssize_t read_report_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	unsigned int ii;
@@ -3064,14 +2640,8 @@ static ssize_t test_sysfs_read_report_show(struct device *dev,
 	unsigned short *report_data_u16;
 	unsigned int *report_data_u32;
 
-#ifdef SYNAPTICS_ESD_CHECK
-		printk("%s SYNAPTICS_ESD_CHECK is off\n", __func__);
-		cancel_delayed_work_sync(&(rmi4_data->esd_work));
-#endif
-
 	switch (f54->report_type) {
 	case F54_8BIT_IMAGE:
-		printk("F54_8BIT_IMAGE\n");
 		report_data_8 = (char *)f54->report_data;
 		for (ii = 0; ii < f54->report_size; ii++) {
 			cnt = snprintf(buf, PAGE_SIZE - count, "%03d: %d\n",
@@ -3110,116 +2680,28 @@ static ssize_t test_sysfs_read_report_show(struct device *dev,
 	case F54_FULL_RAW_CAP_NO_RX_COUPLING:
 	case F54_SENSOR_SPEED:
 	case F54_AMP_FULL_RAW_CAP:
-	/* tddi f54 test reporting + */
-	case F54_NOISE_TDDI:
-	/* tddi f54 test reporting - */
-		printk("start F54_NOISE_TDDI\n");
+	case F54_FULL_RAW_CAP_TDDI:
 		report_data_16 = (short *)f54->report_data;
-		cnt = snprintf(buf, PAGE_SIZE - count, "tx = %d\nrx = %d\n\n",
+		cnt = snprintf(buf, PAGE_SIZE - count, "tx = %d\nrx = %d\n",
 				tx_num, rx_num);
 		buf += cnt;
 		count += cnt;
 
 		for (ii = 0; ii < tx_num; ii++) {
 			for (jj = 0; jj < (rx_num - 1); jj++) {
-				cnt = snprintf(buf, PAGE_SIZE - count, "%-5d ",
+				cnt = snprintf(buf, PAGE_SIZE - count, "%-4d ",
 						*report_data_16);
 				report_data_16++;
 				buf += cnt;
 				count += cnt;
 			}
-			cnt = snprintf(buf, PAGE_SIZE - count, "%-5d\n",
+			cnt = snprintf(buf, PAGE_SIZE - count, "%-4d\n",
 					*report_data_16);
 			report_data_16++;
 			buf += cnt;
 			count += cnt;
 		}
 		break;
-	/* tddi f54 test reporting + */
-	case F54_FULL_RAW_CAP_TDDI:
-		printk("start F54_FULL_RAW_CAP_TDDI\n");
-		report_data_u16 = (unsigned short *)f54->report_data;
-		cnt = snprintf(buf, PAGE_SIZE - count, "tx = %d\nrx = %d\n\n",
-				tx_num, rx_num);
-		buf += cnt;
-		count += cnt;
-
-		for (ii = 0; ii < tx_num; ii++) {
-			for (jj = 0; jj < (rx_num - 1); jj++) {
-				cnt = snprintf(buf, PAGE_SIZE - count, "%-5d ",
-						*report_data_u16);
-				if (*report_data_16 <= 1700 || *report_data_16 >= 2300){
-					if ((jj == 24) && (ii != 1) && (ii != 6) && (ii != 12)){
-						check_ito_test_flag = 1;
-					} else{
-						check_ito_test_flag = 0;
-					}
-				}else{
-					check_ito_test_flag = 0;
-				}
-				report_data_u16++;
-				buf += cnt;
-				count += cnt;
-			}
-			cnt = snprintf(buf, PAGE_SIZE - count, "%-5d\n",
-					*report_data_u16);
-			report_data_u16++;
-			buf += cnt;
-			count += cnt;
-		}
-		if (1 == check_ito_test_flag){
-			cnt = snprintf(buf, PAGE_SIZE - count, "fail\n");
-			buf += cnt;
-			count += cnt;
-			printk("[synaptics]ITO test fail\n");
-		}else{
-			cnt = snprintf(buf, PAGE_SIZE - count, "pass\n");
-			buf += cnt;
-			count += cnt;
-			printk("[synaptics]ITO test pass\n");
-		}
-		break;
-	case F54_EE_SHORT_TDDI:
-		printk("start F54_EE_SHORT_TDDI\n");
-		report_data_u16 = (unsigned short *)f54->report_data;
-		cnt = snprintf(buf, PAGE_SIZE - count, "tx = %d\nrx = %d\n\n",
-				tx_num, rx_num);
-		buf += cnt;
-		count += cnt;
-
-		for (ii = 0; ii < tx_num; ii++) {
-			for (jj = 0; jj < (rx_num - 1); jj++) {
-				cnt = snprintf(buf, PAGE_SIZE - count, "%-4d ",
-						*report_data_u16);
-				report_data_u16++;
-				buf += cnt;
-				count += cnt;
-			}
-			cnt = snprintf(buf, PAGE_SIZE - count, "%-4d\n",
-					*report_data_u16);
-			report_data_u16++;
-			buf += cnt;
-			count += cnt;
-		}
-		cnt = snprintf(buf, PAGE_SIZE - count, "\n");
-		buf += cnt;
-		count += cnt;
-		for (ii = 0; ii < tx_num; ii++) {
-			for (jj = 0; jj < (rx_num - 1); jj++) {
-				cnt = snprintf(buf, PAGE_SIZE - count, "%-4d ",
-						*report_data_u16);
-				report_data_u16++;
-				buf += cnt;
-				count += cnt;
-			}
-			cnt = snprintf(buf, PAGE_SIZE - count, "%-4d\n",
-					*report_data_u16);
-			report_data_u16++;
-			buf += cnt;
-			count += cnt;
-		}
-		break;
-	/* tddi f54 test reporting - */
 	case F54_HIGH_RESISTANCE:
 	case F54_FULL_RAW_CAP_MIN_MAX:
 		report_data_16 = (short *)f54->report_data;
@@ -3357,15 +2839,10 @@ static ssize_t test_sysfs_read_report_show(struct device *dev,
 	snprintf(buf, PAGE_SIZE - count, "\n");
 	count++;
 
-#ifdef SYNAPTICS_ESD_CHECK
-	printk("%s SYNAPTICS_ESD_CHECK is on\n", __func__);
-			queue_delayed_work(rmi4_data->esd_workqueue, &(rmi4_data->esd_work), SYNAPTICS_ESD_CHECK_CIRCLE);
-#endif
-
 	return count;
 }
 
-static ssize_t test_sysfs_read_report_store(struct device *dev,
+static ssize_t read_report_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
@@ -3374,15 +2851,15 @@ static ssize_t test_sysfs_read_report_store(struct device *dev,
 	const char cmd[] = {'1', 0};
 	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
 
-	retval = test_sysfs_report_type_store(dev, attr, buf, count);
+	retval = report_type_store(dev, attr, buf, count);
 	if (retval < 0)
 		goto exit;
 
-	retval = test_sysfs_do_preparation_store(dev, attr, cmd, 1);
+	retval = do_preparation_store(dev, attr, cmd, 1);
 	if (retval < 0)
 		goto exit;
 
-	retval = test_sysfs_get_report_store(dev, attr, cmd, 1);
+	retval = get_report_store(dev, attr, cmd, 1);
 	if (retval < 0)
 		goto exit;
 
@@ -3402,7 +2879,7 @@ static ssize_t test_sysfs_read_report_store(struct device *dev,
 		goto exit;
 	}
 
-	retval = test_sysfs_resume_touch_store(dev, attr, cmd, 1);
+	retval = resume_touch_store(dev, attr, cmd, 1);
 	if (retval < 0)
 		goto exit;
 
@@ -3413,2699 +2890,6 @@ exit:
 
 	return retval;
 }
-
-static ssize_t test_sysfs_ito_test_result_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-		if (1 == check_ito_test_flag){
-		return snprintf(buf, PAGE_SIZE, "%s\n", "fail");
-		}else if (0 == check_ito_test_flag){
-		return snprintf(buf, PAGE_SIZE, "%s\n", "pass");
-		}else{
-		return snprintf(buf, PAGE_SIZE, "%s\n", "");
-		}
-}
-
-/* tddi f54 test reporting + */
-static ssize_t test_sysfs_read_report(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count,
-		bool do_preparation, bool do_reset)
-{
-	int retval = count;
-	unsigned char timeout = GET_REPORT_TIMEOUT_S * 10;
-	unsigned char timeout_count;
-	const char cmd[] = {'1', 0};
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-	retval = test_sysfs_report_type_store(dev, attr, buf, count);
-	if (retval < 0)
-		goto exit;
-
-	if (do_preparation){
-		retval = test_sysfs_do_preparation_store(dev, attr, cmd, 1);
-		if (retval < 0)
-			goto exit;
-	}
-	retval = test_sysfs_get_report_store(dev, attr, cmd, 1);
-	if (retval < 0)
-		goto exit;
-
-	timeout_count = 0;
-	do {
-		if (f54->status != STATUS_BUSY)
-			break;
-		msleep(100);
-		timeout_count++;
-	} while (timeout_count < timeout);
-
-	if ((f54->status != STATUS_IDLE) || (f54->report_size == 0)) {
-
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report\n",
-				__func__);
-		retval = -EINVAL;
-		goto exit;
-	}
-
-exit:
-	if (do_reset)
-		rmi4_data->reset_device(rmi4_data, false);
-
-	return retval;
-}
-
-static short find_median(short *pdata, int num)
-{
-	int i, j;
-	short temp;
-	short *value;
-	short median;
-
-	value = (short *)kzalloc(num * sizeof(short), GFP_KERNEL);
-
-	for (i = 0; i < num; i++)
-		*(value+i) = *(pdata+i);
-
-
-	for (i = 1; i <= num-1; i++)
-	{
-		for (j = 1; j <= num-i; j++)
-		{
-			if (*(value+j-1) <= *(value+j))
-			{
-			   temp = *(value+j-1);
-			   *(value+j-1) = *(value+j);
-			   *(value+j) = temp;
-			}
-			else
-				continue ;
-		}
-	}
-
-
-	if (num % 2 == 0)
-		median = (*(value+(num/2 -1)) + *(value+(num/2)))/2;
-	else
-		median = *(value+(num/2));
-
-	if (value)
-		kfree(value);
-
-	return median;
-}
-
-static int tddi_ratio_calculation(signed short *p_image)
-{
-	int retval = 0;
-	int i, j;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	unsigned char left_size = f54->left_mux_size;
-	unsigned char right_size = f54->right_mux_size;
-	signed short *p_data_16;
-	signed short *p_left_median = NULL;
-	signed short *p_right_median = NULL;
-	signed short *p_left_column_buf = NULL;
-	signed short *p_right_column_buf = NULL;
-	signed int temp;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-	if (!p_image) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Fail. p_image is null\n", __func__);
-		retval = -EINVAL;
-		goto exit;
-	}
-
-
-	p_right_median = (signed short *) kzalloc(rx_num * sizeof(short), GFP_KERNEL);
-	if (!p_right_median) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_right_median\n", __func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_left_median = (signed short *) kzalloc(rx_num * sizeof(short), GFP_KERNEL);
-	if (!p_left_median) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_left_median\n", __func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_right_column_buf = (signed short *) kzalloc(right_size * rx_num * sizeof(short), GFP_KERNEL);
-	if (!p_right_column_buf) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_right_column_buf\n", __func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_left_column_buf = (signed short *) kzalloc(left_size * rx_num * sizeof(short), GFP_KERNEL);
-	if (!p_left_column_buf) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_left_column_buf\n", __func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-
-	if (f54->swap_sensor_side) {
-
-
-		p_data_16 = p_image;
-		for (i = 0; i < rx_num; i++) {
-			for (j = 0; j < left_size; j++) {
-				p_left_column_buf[i * left_size + j] = p_data_16[j * rx_num + i];
-			}
-		}
-
-		p_data_16 = p_image + left_size * rx_num;
-		for (i = 0; i < rx_num; i++) {
-			for (j = 0; j < right_size; j++) {
-				p_right_column_buf[i * right_size + j] = p_data_16[j * rx_num + i];
-			}
-		}
-	}
-	else {
-
-
-		p_data_16 = p_image;
-		for (i = 0; i < rx_num; i++) {
-			for (j = 0; j < right_size; j++) {
-				p_right_column_buf[i * right_size + j] = p_data_16[j * rx_num + i];
-			}
-		}
-
-		p_data_16 = p_image + right_size * rx_num;
-		for (i = 0; i < rx_num; i++) {
-			for (j = 0; j < left_size; j++) {
-				p_left_column_buf[i * left_size + j] = p_data_16[j * rx_num + i];
-			}
-		}
-	}
-
-
-	for (i = 0; i < rx_num; i++) {
-		p_left_median[i] = find_median(p_left_column_buf + i * left_size, left_size);
-		p_right_median[i] = find_median(p_right_column_buf + i * right_size, right_size);
-	}
-
-
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-
-
-			if (f54->swap_sensor_side) {
-
-				if (i < left_size) {
-					temp = (signed int) p_image[i * rx_num + j];
-					temp = temp * 100 / p_left_median[j];
-				} else {
-					temp = (signed int) p_image[i * rx_num + j];
-					temp = temp * 100 / p_right_median[j];
-				}
-			}
-			else {
-
-				if (i < right_size) {
-					temp = (signed int) p_image[i * rx_num + j];
-					temp = temp * 100 / p_right_median[j];
-				} else {
-					temp = (signed int) p_image[i * rx_num + j];
-					temp = temp * 100 / p_left_median[j];
-				}
-			}
-
-
-			p_image[i * rx_num + j] = temp;
-		}
-	}
-
-exit:
-	kfree(p_right_median);
-	kfree(p_left_median);
-	kfree(p_right_column_buf);
-	kfree(p_left_column_buf);
-	return retval;
-}
-
-static ssize_t test_sysfs_tddi_ee_short_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval;
-	int i, j, offset;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	signed short *tddi_rt95_part_one = NULL;
-	signed short *tddi_rt95_part_two = NULL;
-	unsigned int buffer_size = tx_num * rx_num * 2;
-	unsigned long setting;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-
-
-	if (setting != 1)
-		return -EINVAL;
-
-	/* allocate the g_tddi_ee_short_data_output */
-	if (g_tddi_ee_short_data_output)
-		kfree(g_tddi_ee_short_data_output);
-
-	g_tddi_ee_short_data_output = kzalloc(tx_num * rx_num, GFP_KERNEL);
-	if (!g_tddi_ee_short_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_ee_short_data_output\n",
-				__func__);
-		return -ENOMEM;
-	}
-
-
-	tddi_rt95_part_one = kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_rt95_part_one) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for tddi_rt95_part_one\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	tddi_rt95_part_two = kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_rt95_part_two) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for td43xx_rt95_part_two\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	g_flag_readrt_err = false;
-
-	/* step 1 */
-	/* get report image 95 */
-	retval = test_sysfs_read_report(dev, attr, "95", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 95. exit\n", __func__);
-		retval = -EIO;
-		g_flag_readrt_err = true;
-		goto exit;
-	}
-
-
-	/* step 2 */
-	/* use the upper half as part 1 image */
-	/* the data should be lower than TEST_LIMIT_PART1 ( fail, if > TEST_LIMIT_PART1 ) */
-	for (i = 0, offset = 0; i < tx_num * rx_num; i++) {
-		tddi_rt95_part_one[i] = (signed short)(f54->report_data[offset]) |
-								((signed short)(f54->report_data[offset + 1]) << 8);
-		offset += 2;
-	}
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = tddi_rt95_part_one[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, tddi_rt95_part_one[i*rx_num + j], min);
-			max = max_t(signed short, tddi_rt95_part_one[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if (tddi_rt95_part_one[i*rx_num + j] > EE_SHORT_TEST_LIMIT_PART1_SHENCHAO) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d in part 1 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_one[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART1_SHENCHAO);
-
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if (tddi_rt95_part_one[i*rx_num + j] > EE_SHORT_TEST_LIMIT_PART1) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d in part 1 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_one[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART1);
-
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : image part 1 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 3 */
-	/* use the lower half as part 2 image */
-	/* and perform the calculation */
-	/* the calculated data should be over than TEST_LIMIT_PART2 ( fail, if < TEST_LIMIT_PART2 ) */
-	for (i = 0, offset = buffer_size; i < tx_num * rx_num; i++) {
-		tddi_rt95_part_two[i] = (signed short)(f54->report_data[offset]) |
-								((signed short)(f54->report_data[offset + 1]) << 8);
-		offset += 2;
-	}
-
-
-	tddi_ratio_calculation(tddi_rt95_part_two);
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = tddi_rt95_part_two[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, tddi_rt95_part_two[i*rx_num + j], min);
-			max = max_t(signed short, tddi_rt95_part_two[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if (tddi_rt95_part_two[i*rx_num + j] < EE_SHORT_TEST_LIMIT_PART2_SHENCHAO) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d in part 2 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_two[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART2_SHENCHAO);
-
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if (tddi_rt95_part_two[i*rx_num + j] < EE_SHORT_TEST_LIMIT_PART2) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d in part 2 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_two[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART2);
-
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : image part 2 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 4 */
-	/* filling out the g_tddi_ee_short_data_output */
-	/* 1: fail / 0 : pass */
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_ee_short_data_output[i * rx_num + j] =
-				(unsigned char)(tddi_rt95_part_one[i * rx_num + j]) || tddi_rt95_part_two[i * rx_num + j];
-		}
-	}
-
-	retval = count;
-
-exit:
-	kfree(tddi_rt95_part_one);
-	kfree(tddi_rt95_part_two);
-
-	return retval;
-}
-
-static int test_tddi_ee_short_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int i, j;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	int fail_count = 0;
-
-	if (!g_tddi_ee_short_data_output)
-		return -EINVAL;
-
-
-
-	if (g_flag_readrt_err) {
-
-		kfree(g_tddi_ee_short_data_output);
-		g_tddi_ee_short_data_output = NULL;
-
-		SYN_LOG("ERROR: fail to read report image\n");
-	}
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_ee_short_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_ee_short_data_output);
-	g_tddi_ee_short_data_output = NULL;
-
-	return ((fail_count == 0) ? 1 : 0);
-}
-
-static ssize_t test_sysfs_tddi_noise_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	int i, j, offset;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	int repeat;
-
-	signed short report_data_16;
-	signed short *tddi_noise_max = NULL;
-	signed short *tddi_noise_min = NULL;
-	unsigned char *tddi_noise_data = NULL;
-	unsigned int buffer_size = tx_num * rx_num * 2;
-	unsigned long setting;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-
-
-	if (setting != 1)
-		return -EINVAL;
-
-	/* allocate the g_tddi_noise_data_output */
-	if (g_tddi_noise_data_output)
-		kfree(g_tddi_noise_data_output);
-
-	g_tddi_noise_data_output = (signed short *)kzalloc(tx_num * rx_num *sizeof(short), GFP_KERNEL);
-	if (!g_tddi_noise_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_noise_data_output\n",
-				__func__);
-		return -ENOMEM;
-	}
-
-	tddi_noise_data = kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_noise_data) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for tddi_noise_data\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	tddi_noise_max = (unsigned short *)kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_noise_max) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for tddi_noise_max\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	tddi_noise_min = (unsigned short *) kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_noise_min) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for tddi_noise_min\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	g_flag_readrt_err = false;
-
-	/* get report image 94 repeatedly */
-	/* and calculate the minimum and maximun value as well */
-	for (repeat = 0 ; repeat < NOISE_TEST_NUM_OF_FRAMES; repeat++){
-
-		retval = test_sysfs_read_report(dev, attr, "94", count,
-					false, false);
-		if (retval < 0) {
-			dev_err(rmi4_data->pdev->dev.parent,
-					"%s: Failed to read report 94 at %d round. exit\n",
-					__func__, repeat);
-			retval = -EIO;
-			g_flag_readrt_err = true;
-			goto exit;
-		}
-
-		memset(tddi_noise_data, 0x00, buffer_size);
-
-		secure_memcpy(tddi_noise_data, buffer_size,
-			f54->report_data, f54->report_size, f54->report_size);
-
-		for (i = 0, offset = 0; i < tx_num; i++) {
-			for (j = 0; j < rx_num; j++) {
-
-				report_data_16 =
-					(signed short)tddi_noise_data[offset] +
-					((signed short)tddi_noise_data[offset+1] << 8);
-				offset += 2;
-
-				tddi_noise_max[i*rx_num + j] =
-					max_t(signed short, tddi_noise_max[i*rx_num + j], report_data_16);
-				tddi_noise_min[i*rx_num + j] =
-					min_t(signed short, tddi_noise_min[i*rx_num + j], report_data_16);
-			}
-		}
-
-	}
-
-
-
-
-
-#ifdef F54_SHOW_MAX_MIN
-	min = tddi_noise_max[0];
-	max = tddi_noise_min[0];
-#endif
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_noise_data_output[i*rx_num + j] =
-				tddi_noise_max[i*rx_num + j] - tddi_noise_min[i*rx_num + j];
-
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, g_tddi_noise_data_output[i*rx_num + j], min);
-			max = max_t(signed short, g_tddi_noise_data_output[i*rx_num + j], max);
-#endif
-
-			if (g_tddi_noise_data_output[i*rx_num + j] > NOISE_TEST_LIMIT)  {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s: fail at (tx%-2d, rx%-2d) = %-4d (limit = %d)\n",
-						__func__, i, j, g_tddi_noise_data_output[i*rx_num + j], NOISE_TEST_LIMIT);
-
-				g_tddi_noise_data_output[i*rx_num + j] = _TEST_FAIL;
-			}
-			else {
-				g_tddi_noise_data_output[i*rx_num + j] = _TEST_PASS;
-			}
-
-		}
-	}
-
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	retval = count;
-
-exit:
-	kfree(tddi_noise_max);
-	kfree(tddi_noise_min);
-	kfree(tddi_noise_data);
-
-	return retval;
-}
-
-static int test_tddi_noise_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int i, j;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	int fail_count = 0;
-
-	if (!g_tddi_noise_data_output)
-		return -EINVAL;
-
-
-
-	if (g_flag_readrt_err) {
-
-		kfree(g_tddi_noise_data_output);
-		g_tddi_noise_data_output = NULL;
-
-		SYN_LOG("ERROR: fail to read report image\n");
-	}
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_noise_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_noise_data_output);
-	g_tddi_noise_data_output = NULL;
-
-	return ((fail_count == 0) ? 1 : 0);
-}
-
-static ssize_t test_sysfs_tddi_full_raw_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	unsigned int full_raw_report_size;
-	unsigned long setting;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-
-
-	if (setting != 1)
-		return -EINVAL;
-
-
-	if (f55->extended_amp_btn) {
-		tx_num += 1;
-	}
-	full_raw_report_size = tx_num * rx_num * 2;
-
-	g_flag_readrt_err = false;
-
-	/* allocate the g_tddi_full_raw_data_output */
-	if (g_tddi_full_raw_data_output)
-		kfree(g_tddi_full_raw_data_output);
-
-	g_tddi_full_raw_data_output = kzalloc(full_raw_report_size, GFP_KERNEL);
-	if (!g_tddi_full_raw_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_full_raw_data_output\n",
-				__func__);
-		return -ENOMEM;
-	}
-
-	/* get the report image 92 */
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92. exit\n", __func__);
-		g_flag_readrt_err = true ;
-		return -EIO;
-	}
-
-	secure_memcpy(g_tddi_full_raw_data_output, full_raw_report_size,
-		f54->report_data, f54->report_size, f54->report_size);
-
-	retval = count;
-
-	return retval;
-}
-
-static int syn_save_rawdata(unsigned short *rawdata, const char *file_path, uint32_t offset)
-{
-	int32_t x = 0;
-	int32_t y = 0;
-	int32_t i = 0;
-	struct file *fp = NULL;
-	char *fbufp = NULL;
-	mm_segment_t org_fs;
-	int32_t write_ret = 0;
-	uint32_t output_len = 0;
-	loff_t pos = 0;
-
-	fbufp = (char *)kzalloc(8192, GFP_KERNEL);
-	if (!fbufp) {
-		SYN_ERR("kzalloc for fbufp failed!\n");
-		return -ENOMEM;
-	}
-
-	for (y = 0; y < 18; y++) {
-		for (x = 0; x < 32; x++) {
-			i = y * 32 + x;
-			sprintf(fbufp + i * 6 + y * 2, "%5d ", rawdata[i]);
-		}
-		sprintf(fbufp + (i + 1) * 6 + y * 2, "\r\n");
-	}
-
-	org_fs = get_fs();
-	set_fs(KERNEL_DS);
-	fp = filp_open(file_path, O_RDWR | O_CREAT, 0644);
-	if (fp == NULL || IS_ERR(fp)) {
-		SYN_ERR("open %s failed\n", file_path);
-		set_fs(org_fs);
-		if (fbufp) {
-			kfree(fbufp);
-			fbufp = NULL;
-		}
-		return -EPERM;
-	}
-
-	output_len = 18 * 32 * 6 + 18 * 2;
-
-	pos = offset;
-	write_ret = vfs_write(fp, (char __user *)fbufp, output_len, &pos);
-	if (write_ret <= 0) {
-		SYN_ERR("write %s failed\n", file_path);
-		set_fs(org_fs);
-		if (fp) {
-			filp_close(fp, NULL);
-			fp = NULL;
-		}
-		if (fbufp) {
-			kfree(fbufp);
-			fbufp = NULL;
-		}
-		return -EPERM;
-	}
-
-	set_fs(org_fs);
-	if (fp) {
-		filp_close(fp, NULL);
-		fp = NULL;
-	}
-	if (fbufp) {
-		kfree(fbufp);
-		fbufp = NULL;
-	}
-
-	return 0;
-}
-
-
-static int test_tddi_full_raw_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	unsigned int i;
-	unsigned int j;
-	unsigned int k;
-	int cnt;
-	int count = 0;
-	int fail_count = 0;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	unsigned short *report_data_16;
-	unsigned short *raw_data_16;
-	unsigned short min = 0, max = 0;
-
-	if (!g_tddi_full_raw_data_output)
-		return -EINVAL;
-
-
-
-	if (g_flag_readrt_err) {
-
-		kfree(g_tddi_full_raw_data_output);
-		g_tddi_full_raw_data_output = NULL;
-
-		SYN_ERR("ERROR: fail to read report image\n");
-	}
-
-	SYN_LOG("tx = %d rx = %d \n", f54->tx_assigned, f54->rx_assigned);
-
-	report_data_16 = (unsigned short *)g_tddi_full_raw_data_output;
-	raw_data_16 = (unsigned short *)g_tddi_full_raw_data_output;
-	if (syn_save_rawdata(raw_data_16, SYN_RAWDATA_FILE, 0) < 0) {
-		SYN_ERR("save rawdata file failed\n");
-	}
-
-	min = max = *report_data_16;
-
-	for (i = 0, k = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
- 			SYN_LOG("%-5d \n", *report_data_16);
-
-			min = (min < *report_data_16)? min : *report_data_16;
-			max = (max > *report_data_16)? max : *report_data_16;
-			if (tp_flag == 1) {
-				if ((*report_data_16 < tddi_full_raw_limit_lower_shenchao[k]) || (*report_data_16 > tddi_full_raw_limit_upper_shenchao[k])) {
-					fail_count ++;
-				}
-			} else {
-				if ((*report_data_16 < tddi_full_raw_limit_lower[k]) || (*report_data_16 > tddi_full_raw_limit_upper[k])) {
-					fail_count ++;
-				}
-			}
-			k++;
-			report_data_16++;
-			buf += cnt;
-			count += cnt;
-		}
-	}
-
-	SYN_LOG("data range (max, min) = (%-4d, %-4d)\n", max, min);
-
-
-
-	if (f55->extended_amp_btn) {
-		SYN_LOG("amp button count = %d.\n", NUM_BUTTON);
-
-		for (i = 0; i < NUM_BUTTON; i++) {
-			SYN_LOG("%-5d ", *report_data_16);
-
-			report_data_16++;
-		}
-	}
-
-	kfree(g_tddi_full_raw_data_output);
-	g_tddi_full_raw_data_output = NULL;
-
-	return ((fail_count == 0) ? 1 : 0);
-
-}
-
-static ssize_t test_sysfs_tddi_amp_open_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	int i, j, k;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-	unsigned long setting;
-	unsigned char original_data_f54_ctrl99[3] = {0x00, 0x00, 0x00};
-	struct f54_control control = f54->control;
-	unsigned char *p_report_data_8 = NULL;
-	signed short  *p_rt92_delta_image = NULL;
-	signed short  *p_rt92_image_1 = NULL;
-	signed short  *p_rt92_image_2 = NULL;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-
-
-	if (setting != 1)
-		return -EINVAL;
-
-
-	if (g_tddi_amp_open_data_output)
-		kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = kzalloc(tx_num * rx_num, GFP_KERNEL);
-	if (!g_tddi_amp_open_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_amp_open_data_output\n",
-				__func__);
-		return -ENOMEM;
-	}
-
-	g_flag_readrt_err = false;
-
-
-	p_report_data_8 = kzalloc(tx_num * rx_num * 2, GFP_KERNEL);
-	if (!p_report_data_8) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_report_data_8\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_delta_image = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_delta_image) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_delta_image\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_image_1 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_1) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_1\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_image_2 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_2) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_2\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-
-
-	if (f54->query.touch_controller_family != 2) {
-
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: not support touch controller family = 0 or 1 \n",
-				__func__);
-		retval = -EINVAL;
-		goto exit;
-	}
-
-
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			original_data_f54_ctrl99,
-			sizeof(original_data_f54_ctrl99));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read integration duration\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 1 */
-	/* set the in_iter_duration_1 setting */
-	/* and read the first rt92 image */
-	control.reg_99->integration_duration_lsb = AMP_OPEN_INT_DUR_ONE;
-	control.reg_99->integration_duration_msb = (AMP_OPEN_INT_DUR_ONE >> 8) & 0xff;
-	control.reg_99->reset_duration = original_data_f54_ctrl99[2];
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to write the integration duration to f54_ctrl_99 in step 1\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 1\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 1. exit\n",
-				__func__);
-		retval = -EIO;
-		g_flag_readrt_err = true;
-		goto exit;
-	}
-
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_1[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-
-	memset(p_report_data_8, 0x00, tx_num * rx_num * 2);
-
-	/* step 2 */
-	/* set the in_iter_duration_2 setting */
-	/* and read the second rt92 image */
-	control.reg_99->integration_duration_lsb = AMP_OPEN_INT_DUR_TWO;
-	control.reg_99->integration_duration_msb = (AMP_OPEN_INT_DUR_TWO >> 8) & 0xff;
-	control.reg_99->reset_duration = original_data_f54_ctrl99[2];
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to write the integration duration to f54_ctrl_99 in step 2\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 2\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 2. exit\n",
-				__func__);
-		retval = -EIO;
-		g_flag_readrt_err = true;
-		goto exit;
-	}
-
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_2[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-
-	/* restore the original settings */
-	control.reg_99->integration_duration_lsb = original_data_f54_ctrl99[0];
-	control.reg_99->integration_duration_msb = original_data_f54_ctrl99[1];
-	control.reg_99->reset_duration = original_data_f54_ctrl99[2];
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to write the integration duration to f54_ctrl_99 in restore phase\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in restore phase\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 3 */
-	/* generate the delta image, td43xx_rt92_delta_image */
-	/* unit is femtofarad (fF) */
-	for (i = 0; i < tx_num * rx_num; i++) {
-		p_rt92_delta_image[i] = p_rt92_image_1[i] - p_rt92_image_2[i];
-	}
-
-	memset(p_rt92_image_1, 0x00, tx_num * rx_num * 2);
-
-	/* step 4 */
-	/* phase 1, the delta value form the above two rt92 images */
-	/* should be within the phase 1 test limit*/
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if ((p_rt92_delta_image[i * rx_num + j] < AMP_OPEN_TEST_LIMIT_PHASE1_LOWER) ||
-				(p_rt92_delta_image[i * rx_num + j] > AMP_OPEN_TEST_LIMIT_PHASE1_UPPER)) {
-
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s: fail at (tx%-2d, rx%-2d) = %-4d at phase 1 (limit = %d, %d)\n",
-						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-						AMP_OPEN_TEST_LIMIT_PHASE1_LOWER, AMP_OPEN_TEST_LIMIT_PHASE1_UPPER);
-
-				p_rt92_image_1[i*rx_num + j] = _TEST_FAIL;
-			}
-			else {
-				p_rt92_image_1[i*rx_num + j] = _TEST_PASS;
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.1 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	memset(p_rt92_image_2, 0x00, tx_num * rx_num * 2);
-
-	/* step 5 */
-	/* data calculation and verification */
-	/* phase 2, the calculated ratio should be within the phase 2 test limit*/
-
-
-	tddi_ratio_calculation(p_rt92_delta_image);
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if ((p_rt92_delta_image[i * rx_num + j] < AMP_OPEN_TEST_LIMIT_PHASE2_LOWER) ||
-				(p_rt92_delta_image[i * rx_num + j] > AMP_OPEN_TEST_LIMIT_PHASE2_UPPER)) {
-
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s: fail at (tx%-2d, rx%-2d) = %-4d at phase 2 (limit = %d, %d)\n",
-						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-						AMP_OPEN_TEST_LIMIT_PHASE2_LOWER, AMP_OPEN_TEST_LIMIT_PHASE2_UPPER);
-
-				p_rt92_image_2[i*rx_num + j] = _TEST_FAIL;
-			}
-			else {
-				p_rt92_image_2[i*rx_num + j] = _TEST_PASS;
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.2 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-
-	/* step 6 */
-	/* filling out the g_tddi_amp_open_data_output */
-	/* 1: fail / 0 : pass */
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_amp_open_data_output[i * rx_num + j] =
-				(unsigned char)(p_rt92_image_1[i * rx_num + j]) || p_rt92_image_2[i * rx_num + j];
-		}
-	}
-
-	retval = count;
-
-exit:
-
-	kfree(p_rt92_image_1);
-	kfree(p_rt92_image_2);
-	kfree(p_rt92_delta_image);
-	kfree(p_report_data_8);
-
-	return count;
-}
-
-static ssize_t test_sysfs_tddi_amp_open_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int i, j;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	int fail_count = 0;
-
-	if (!g_tddi_amp_open_data_output)
-		return -EINVAL;
-
-
-
-	if (g_flag_readrt_err) {
-
-		kfree(g_tddi_amp_open_data_output);
-		g_tddi_amp_open_data_output = NULL;
-
-		return snprintf(buf, PAGE_SIZE, "\nERROR: fail to read report image\n");
-	}
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_amp_open_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = NULL;
-
-	return snprintf(buf, PAGE_SIZE, "%s\n", (fail_count == 0) ? "PASS" : "FAIL");
-}
-
-static ssize_t test_sysfs_burst_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	unsigned long setting;
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-	if (setting == 1)
-		f54->is_burst = 1;
-	else
-		f54->is_burst = 0;
-
-	return count;
-}
-
-static ssize_t test_sysfs_burst_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%s\n", (f54->is_burst == 1) ? "BURST" : "BYTE");
-}
-
-
-static ssize_t test_sysfs_tddi_amp_electrode_open_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	int i, j, k;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-	struct f54_control control = f54->control;
-	unsigned long setting;
-
-	struct f54_control_91  original_f54_ctrl91;
-	struct f54_control_99  original_f54_ctrl99;
-	struct f54_control_182 original_f54_ctrl182;
-
-	unsigned char *p_report_data_8 = NULL;
-	signed short  *p_rt92_image_1 = NULL;
-	signed short  *p_rt92_image_2 = NULL;
-	signed short  *p_rt92_delta_image = NULL;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-	if (setting != 1)
-		return -EINVAL;
-
-
-	if (g_tddi_amp_open_data_output)
-		kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = kzalloc(tx_num * rx_num, GFP_KERNEL);
-	if (!g_tddi_amp_open_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_amp_open_data_output\n",
-				__func__);
-		return -ENOMEM;
-	}
-
-	g_flag_readrt_err = false;
-
-
-	p_report_data_8 = kzalloc(tx_num * rx_num * 2, GFP_KERNEL);
-	if (!p_report_data_8) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_report_data_8\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_delta_image = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_delta_image) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_delta_image\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_image_1 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_1) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_1\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-	p_rt92_image_2 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_2) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_2\n",
-				__func__);
-		retval = -ENOMEM;
-		goto exit;
-	}
-
-
-	/* keep the original reference high/low capacitance */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_91->address,
-			original_f54_ctrl91.data,
-			sizeof(original_f54_ctrl91.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl91\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	/* keep the original integration and reset duration */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			original_f54_ctrl99.data,
-			sizeof(original_f54_ctrl99.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl99\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	/* keep the original timing control */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_182->address,
-			original_f54_ctrl182.data,
-			sizeof(original_f54_ctrl182.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl182\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 1 */
-	/* Wide refcap hi/ lo and feedback, Write 0x0F to F54_ANALOG_CTRL91 */
-	control.reg_91->reflo_transcap_capacitance = 0x0f;
-	control.reg_91->refhi_transcap_capacitance = 0x0f;
-	control.reg_91->receiver_feedback_capacitance = 0x0f;
-	control.reg_91->reference_receiver_feedback_capacitance = original_f54_ctrl91.reference_receiver_feedback_capacitance;
-	control.reg_91->gain_ctrl = original_f54_ctrl91.gain_ctrl;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_91->address,
-			control.reg_91->data,
-			sizeof(control.reg_91->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_ctrl91 in step 1\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 2 */
-	/* Increase RST_DUR to 1.53us, Write 0x5c to F54_ANALOG_CTRL99 */
-	control.reg_99->integration_duration_lsb = original_f54_ctrl99.integration_duration_lsb;
-	control.reg_99->integration_duration_msb = original_f54_ctrl99.integration_duration_msb;
-	control.reg_99->reset_duration = 0x5c;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_ctrl99 in step 2\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 3 */
-	/* Write 0x02 to F54_ANALOG_CTRL182 (00)/00 and (00)/02 */
-	control.reg_182->cbc_timing_ctrl_tx_lsb = ELEC_OPEN_TEST_TX_ON_COUNT & 0xff;
-	control.reg_182->cbc_timing_ctrl_tx_msb = (ELEC_OPEN_TEST_TX_ON_COUNT >> 8) & 0xff;
-	control.reg_182->cbc_timing_ctrl_rx_lsb = ELEC_OPEN_TEST_RX_ON_COUNT & 0xff;
-	control.reg_182->cbc_timing_ctrl_rx_msb = (ELEC_OPEN_TEST_RX_ON_COUNT >> 8) & 0xff;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_182->address,
-			control.reg_182->data,
-			sizeof(control.reg_182->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_reg_182 in step 3\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 4 */
-	/* Change the INT_DUR as ELEC_OPEN_INT_DUR_ONE */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read data from f54_ctrl99 in step 4\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	if (tp_flag == 1) {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_ONE_SHENCHAO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_ONE_SHENCHAO >> 8) & 0xff;
-	} else {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_ONE;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_ONE >> 8) & 0xff;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to seet ELEC_OPEN_INT_DUR_ONE(%d) in step 4\n",
-				__func__, ELEC_OPEN_INT_DUR_ONE);
-		retval = -EIO;
-		goto exit;
-	}
-
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 4\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 5 */
-	/* Capture raw capacitance (rt92) image 1 */
-	/* Run Report Type 92 */
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 5. exit\n",
-				__func__);
-		retval = -EIO;
-		g_flag_readrt_err = false;
-		goto exit;
-	}
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_1[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-	memset(p_report_data_8, 0x00, tx_num * rx_num * 2);
-
-	/* step 6 */
-	/* Change the INT_DUR into ELEC_OPEN_INT_DUR_TWO */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read data from f54_ctrl99 in step 6\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	if (tp_flag == 1) {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_TWO_SHENCHAO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_TWO_SHENCHAO >> 8) & 0xff;
-	} else {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_TWO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_TWO >> 8) & 0xff;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to seet ELEC_OPEN_INT_DUR_TWO(%d) in step 6\n",
-				__func__, ELEC_OPEN_INT_DUR_TWO);
-		retval = -EIO;
-		goto exit;
-	}
-
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 6\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	/* step 7 */
-	/* Capture raw capacitance (rt92) image 2 */
-	/* Run Report Type 92 */
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 7. exit\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_2[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-
-	/* step 8 */
-	/* generate the delta image, which is equeal to image2 - image1 */
-	/* unit is femtofarad (fF) */
-	for (i = 0; i < tx_num * rx_num; i++) {
-		p_rt92_delta_image[i] = p_rt92_image_2[i] - p_rt92_image_1[i];
-	}
-
-	/* step 9 */
-	/* restore the original configuration */
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_91->address,
-			original_f54_ctrl91.data,
-			sizeof(original_f54_ctrl91.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl91 data\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			original_f54_ctrl99.data,
-			sizeof(original_f54_ctrl99.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl99 data\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_182->address,
-			original_f54_ctrl182.data,
-			sizeof(original_f54_ctrl182.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl182 data\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 9\n",
-				__func__);
-		retval = -EIO;
-		goto exit;
-	}
-
-	memset(p_rt92_image_1, 0x00, tx_num * rx_num * 2);
-
-	/* step 10 */
-	/* phase 1, data verification */
-	/* the delta value should be lower than the test limit */
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_ONE_LOWER_SHENCHAO) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_ONE_UPPER_SHENCHAO)){
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d at phase 1 (limit: %d - %d)\n",
-	 						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_ONE_LOWER_SHENCHAO, ELEC_OPEN_TEST_LIMIT_ONE_UPPER_SHENCHAO);
-
-					p_rt92_image_1[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_1[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_ONE_LOWER) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_ONE_UPPER)){
-
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d at phase 1 (limit: %d - %d)\n",
-	 						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_ONE_LOWER, ELEC_OPEN_TEST_LIMIT_ONE_UPPER);
-
-					p_rt92_image_1[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_1[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.1 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	memset(p_rt92_image_2, 0x00, tx_num * rx_num * 2);
-
-	/* step 11 */
-	/* phase 2, data calculation and verification */
-	/* the calculated ratio should be lower than the test limit */
-
-
-	tddi_ratio_calculation(p_rt92_delta_image);
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_TWO_LOWER_SHENCHAO) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_TWO_UPPER_SHENCHAO)){
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d at phase 2 (limit: %d - %d)\n",
-							__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_TWO_LOWER_SHENCHAO, ELEC_OPEN_TEST_LIMIT_TWO_UPPER_SHENCHAO);
-
-					p_rt92_image_2[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_2[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_TWO_LOWER) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_TWO_UPPER)){
-
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d at phase 2 (limit: %d - %d)\n",
-							__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_TWO_LOWER, ELEC_OPEN_TEST_LIMIT_TWO_UPPER);
-
-					p_rt92_image_2[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_2[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.2 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 12 */
-	/* filling out the g_tddi_amp_open_data_output */
-	/* 1: fail / 0 : pass */
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_amp_open_data_output[i * rx_num + j] =
-				(unsigned char)(p_rt92_image_1[i * rx_num + j]) || p_rt92_image_2[i * rx_num + j];
-		}
-	}
-
-	retval = count;
-
-exit:
-
-	kfree(p_report_data_8);
-	kfree(p_rt92_image_1);
-	kfree(p_rt92_image_2);
-	kfree(p_rt92_delta_image);
-
-	return count;
-}
-
-static int test_tddi_amp_electrode_open_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int i, j;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	int fail_count = 0;
-
-	if (!g_tddi_amp_open_data_output)
-		return -EINVAL;
-
-
-
-	if (g_flag_readrt_err) {
-
-		kfree(g_tddi_amp_open_data_output);
-		g_tddi_amp_open_data_output = NULL;
-
-		SYN_LOG("ERROR: fail to read report image\n");
-	}
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_amp_open_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = NULL;
-
-	return ((fail_count == 0) ? 1 : 0);
-}
-
-static ssize_t test_sysfs_syn_selftest_result_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int retval = 0;
-	unsigned long setting;
-
-	retval = sstrtoul(buf, 10, &setting);
-	if (retval)
-		return retval;
-
-
-
-	if (setting != 1)
-		return -EINVAL;
-	SYN_LOG("ENTER selftest-full_raw\n");
-	retval = test_sysfs_tddi_full_raw_store(dev, attr, buf, count);
-	SYN_LOG("ENTER selftest-noise\n");
-	retval = test_sysfs_tddi_noise_store(dev, attr, buf, count);
-	SYN_LOG("ENTER selftest-ee_short\n");
-	retval = test_sysfs_tddi_ee_short_store(dev, attr, buf, count);
-	SYN_LOG("ENTER selftest-electrode_open\n");
-	retval = test_sysfs_tddi_amp_electrode_open_store(dev, attr, buf, count);
-	SYN_LOG("resume touch\n");
-	retval = test_sysfs_resume_touch_store(dev, attr, buf, count);
-
-	return retval;
-}
-
-static ssize_t test_sysfs_syn_selftest_result_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int result = 0;
-	int cnt = 0;
-
-	result = test_tddi_full_raw_show(dev, attr, buf);
-	if (result == 1){
-	SYN_LOG("tddi_full_raw test pass\n");
-	}else{
-	SYN_LOG("tddi_full_raw test fail\n");
-	}
-	cnt = cnt + result;
-
-	result = test_tddi_noise_show(dev, attr, buf);
-	if (result == 1){
-	SYN_LOG("tddi_noise test pass\n");
-	}else{
-	SYN_LOG("tddi_noise test fail\n");
-	}
-	cnt = cnt + result;
-
-	result = test_tddi_ee_short_show(dev, attr, buf);
-	if (result == 1){
-	SYN_LOG("tddi_ee_short test pass\n");
-	}else{
-	SYN_LOG("tddi_ee_short test fail\n");
-	}
-	cnt = cnt + result;
-
-	result = test_tddi_amp_electrode_open_show(dev, attr, buf);
-	if (result == 1){
-	SYN_LOG("tddi_amp_electrode_open test pass\n");
-	}else{
-	SYN_LOG("tddi_amp_electrode_open test fail\n");
-	}
-	cnt = cnt + result;
-
-	return snprintf(buf, PAGE_SIZE, "%s\n", (cnt == 4) ? "PASS" : "FAIL");
-}
-
-
-static int test_sysfs_tddi_ee_short_func(void)
-{
-	struct device *dev;
-	struct device_attribute *attr;
-
-	size_t count;
-	int fail_count = 0;
-	int retval;
-	int i, j, offset;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	signed short *tddi_rt95_part_one = NULL;
-	signed short *tddi_rt95_part_two = NULL;
-	unsigned int buffer_size = tx_num * rx_num * 2;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-	/* allocate the g_tddi_ee_short_data_output */
-	if (g_tddi_ee_short_data_output)
-		kfree(g_tddi_ee_short_data_output);
-
-	g_tddi_ee_short_data_output = kzalloc(tx_num * rx_num, GFP_KERNEL);
-	if (!g_tddi_ee_short_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_ee_short_data_output\n",
-				__func__);
-		return 0;
-	}
-
-
-	tddi_rt95_part_one = kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_rt95_part_one) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for tddi_rt95_part_one\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	tddi_rt95_part_two = kzalloc(buffer_size, GFP_KERNEL);
-	if (!tddi_rt95_part_two) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for td43xx_rt95_part_two\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	g_flag_readrt_err = false;
-
-	/* step 1 */
-	/* get report image 95 */
-	retval = test_sysfs_read_report(dev, attr, "95", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 95. exit\n", __func__);
-		retval = 0;
-		g_flag_readrt_err = true;
-		goto exit;
-	}
-
-
-	/* step 2 */
-	/* use the upper half as part 1 image */
-	/* the data should be lower than TEST_LIMIT_PART1 ( fail, if > TEST_LIMIT_PART1 ) */
-	for (i = 0, offset = 0; i < tx_num * rx_num; i++) {
-		tddi_rt95_part_one[i] = (signed short)(f54->report_data[offset]) |
-								((signed short)(f54->report_data[offset + 1]) << 8);
-		offset += 2;
-	}
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = tddi_rt95_part_one[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, tddi_rt95_part_one[i*rx_num + j], min);
-			max = max_t(signed short, tddi_rt95_part_one[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if (tddi_rt95_part_one[i*rx_num + j] > EE_SHORT_TEST_LIMIT_PART1_SHENCHAO) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d in part 1 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_one[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART1_SHENCHAO);
-
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if (tddi_rt95_part_one[i*rx_num + j] > EE_SHORT_TEST_LIMIT_PART1) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d in part 1 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_one[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART1);
-
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_one[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : image part 1 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 3 */
-	/* use the lower half as part 2 image */
-	/* and perform the calculation */
-	/* the calculated data should be over than TEST_LIMIT_PART2 ( fail, if < TEST_LIMIT_PART2 ) */
-	for (i = 0, offset = buffer_size; i < tx_num * rx_num; i++) {
-		tddi_rt95_part_two[i] = (signed short)(f54->report_data[offset]) |
-								((signed short)(f54->report_data[offset + 1]) << 8);
-		offset += 2;
-	}
-
-
-	tddi_ratio_calculation(tddi_rt95_part_two);
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = tddi_rt95_part_two[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, tddi_rt95_part_two[i*rx_num + j], min);
-			max = max_t(signed short, tddi_rt95_part_two[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if (tddi_rt95_part_two[i*rx_num + j] < EE_SHORT_TEST_LIMIT_PART2_SHENCHAO) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d in part 2 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_two[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART2_SHENCHAO);
-
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if (tddi_rt95_part_two[i*rx_num + j] < EE_SHORT_TEST_LIMIT_PART2) {
-				dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d in part 2 image (limit = %d)\n",
-							__func__, i, j, tddi_rt95_part_two[i*rx_num + j], EE_SHORT_TEST_LIMIT_PART2);
-
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					tddi_rt95_part_two[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : image part 2 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 4 */
-	/* filling out the g_tddi_ee_short_data_output */
-	/* 1: fail / 0 : pass */
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_ee_short_data_output[i * rx_num + j] =
-				(unsigned char)(tddi_rt95_part_one[i * rx_num + j]) || tddi_rt95_part_two[i * rx_num + j];
-		}
-	}
-
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_ee_short_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_ee_short_data_output);
-	g_tddi_ee_short_data_output = NULL;
-
-	retval = ((fail_count == 0) ? 2 : 1);
-
-exit:
-	kfree(tddi_rt95_part_one);
-	kfree(tddi_rt95_part_two);
-
-	return retval;
-}
-
-static int test_sysfs_tddi_amp_electrode_open_func(void)
-{
-	struct device *dev;
-	struct device_attribute *attr;
-
-	size_t count;
-	int fail_count = 0;
-	int retval = 0;
-	int i, j, k;
-	int tx_num = f54->tx_assigned;
-	int rx_num = f54->rx_assigned;
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-	struct f54_control control = f54->control;
-
-	struct f54_control_91  original_f54_ctrl91;
-	struct f54_control_99  original_f54_ctrl99;
-	struct f54_control_182 original_f54_ctrl182;
-
-	unsigned char *p_report_data_8 = NULL;
-	signed short  *p_rt92_image_1 = NULL;
-	signed short  *p_rt92_image_2 = NULL;
-	signed short  *p_rt92_delta_image = NULL;
-
-#ifdef F54_SHOW_MAX_MIN
-	signed short min = 0;
-	signed short max = 0;
-#endif
-
-
-	if (g_tddi_amp_open_data_output)
-		kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = kzalloc(tx_num * rx_num, GFP_KERNEL);
-	if (!g_tddi_amp_open_data_output) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for g_tddi_amp_open_data_output\n",
-				__func__);
-		return 0;
-	}
-
-	g_flag_readrt_err = false;
-
-
-	p_report_data_8 = kzalloc(tx_num * rx_num * 2, GFP_KERNEL);
-	if (!p_report_data_8) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_report_data_8\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	p_rt92_delta_image = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_delta_image) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_delta_image\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	p_rt92_image_1 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_1) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_1\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	p_rt92_image_2 = kzalloc(tx_num * rx_num * sizeof(signed short), GFP_KERNEL);
-	if (!p_rt92_image_2) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to alloc mem for p_rt92_image_2\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-
-	/* keep the original reference high/low capacitance */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_91->address,
-			original_f54_ctrl91.data,
-			sizeof(original_f54_ctrl91.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl91\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	/* keep the original integration and reset duration */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			original_f54_ctrl99.data,
-			sizeof(original_f54_ctrl99.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl99\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	/* keep the original timing control */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_182->address,
-			original_f54_ctrl182.data,
-			sizeof(original_f54_ctrl182.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read original data from f54_ctrl182\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 1 */
-	/* Wide refcap hi/ lo and feedback, Write 0x0F to F54_ANALOG_CTRL91 */
-	control.reg_91->reflo_transcap_capacitance = 0x0f;
-	control.reg_91->refhi_transcap_capacitance = 0x0f;
-	control.reg_91->receiver_feedback_capacitance = 0x0f;
-	control.reg_91->reference_receiver_feedback_capacitance = original_f54_ctrl91.reference_receiver_feedback_capacitance;
-	control.reg_91->gain_ctrl = original_f54_ctrl91.gain_ctrl;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_91->address,
-			control.reg_91->data,
-			sizeof(control.reg_91->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_ctrl91 in step 1\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 2 */
-	/* Increase RST_DUR to 1.53us, Write 0x5c to F54_ANALOG_CTRL99 */
-	control.reg_99->integration_duration_lsb = original_f54_ctrl99.integration_duration_lsb;
-	control.reg_99->integration_duration_msb = original_f54_ctrl99.integration_duration_msb;
-	control.reg_99->reset_duration = 0x5c;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_ctrl99 in step 2\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 3 */
-	/* Write 0x02 to F54_ANALOG_CTRL182 (00)/00 and (00)/02 */
-	control.reg_182->cbc_timing_ctrl_tx_lsb = ELEC_OPEN_TEST_TX_ON_COUNT & 0xff;
-	control.reg_182->cbc_timing_ctrl_tx_msb = (ELEC_OPEN_TEST_TX_ON_COUNT >> 8) & 0xff;
-	control.reg_182->cbc_timing_ctrl_rx_lsb = ELEC_OPEN_TEST_RX_ON_COUNT & 0xff;
-	control.reg_182->cbc_timing_ctrl_rx_msb = (ELEC_OPEN_TEST_RX_ON_COUNT >> 8) & 0xff;
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_182->address,
-			control.reg_182->data,
-			sizeof(control.reg_182->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to set f54_reg_182 in step 3\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 4 */
-	/* Change the INT_DUR as ELEC_OPEN_INT_DUR_ONE */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read data from f54_ctrl99 in step 4\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	if (tp_flag == 1) {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_ONE_SHENCHAO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_ONE_SHENCHAO >> 8) & 0xff;
-	} else {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_ONE;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_ONE >> 8) & 0xff;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to seet ELEC_OPEN_INT_DUR_ONE(%d) in step 4\n",
-				__func__, ELEC_OPEN_INT_DUR_ONE);
-		retval = 0;
-		goto exit;
-	}
-
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 4\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 5 */
-	/* Capture raw capacitance (rt92) image 1 */
-	/* Run Report Type 92 */
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 5. exit\n",
-				__func__);
-		retval = 0;
-		g_flag_readrt_err = false;
-		goto exit;
-	}
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_1[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-	memset(p_report_data_8, 0x00, tx_num * rx_num * 2);
-
-	/* step 6 */
-	/* Change the INT_DUR into ELEC_OPEN_INT_DUR_TWO */
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read data from f54_ctrl99 in step 6\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	if (tp_flag == 1) {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_TWO_SHENCHAO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_TWO_SHENCHAO >> 8) & 0xff;
-	} else {
-		control.reg_99->integration_duration_lsb = ELEC_OPEN_INT_DUR_TWO;
-		control.reg_99->integration_duration_msb = (ELEC_OPEN_INT_DUR_TWO >> 8) & 0xff;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			control.reg_99->data,
-			sizeof(control.reg_99->data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to seet ELEC_OPEN_INT_DUR_TWO(%d) in step 6\n",
-				__func__, ELEC_OPEN_INT_DUR_TWO);
-		retval = 0;
-		goto exit;
-	}
-
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 6\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	/* step 7 */
-	/* Capture raw capacitance (rt92) image 2 */
-	/* Run Report Type 92 */
-	retval = test_sysfs_read_report(dev, attr, "92", count,
-				false, false);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to read report 92 in step 7. exit\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	secure_memcpy(p_report_data_8, tx_num * rx_num * 2,
-		f54->report_data, f54->report_size, f54->report_size);
-
-	k = 0;
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			p_rt92_image_2[i * rx_num + j] =
-				(signed short)(p_report_data_8[k] & 0xff) | (signed short)(p_report_data_8[k + 1] << 8);
-
-			k += 2;
-		}
-	}
-
-	/* step 8 */
-	/* generate the delta image, which is equeal to image2 - image1 */
-	/* unit is femtofarad (fF) */
-	for (i = 0; i < tx_num * rx_num; i++) {
-		p_rt92_delta_image[i] = p_rt92_image_2[i] - p_rt92_image_1[i];
-	}
-
-	/* step 9 */
-	/* restore the original configuration */
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_91->address,
-			original_f54_ctrl91.data,
-			sizeof(original_f54_ctrl91.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl91 data\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_99->address,
-			original_f54_ctrl99.data,
-			sizeof(original_f54_ctrl99.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl99 data\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			control.reg_182->address,
-			original_f54_ctrl182.data,
-			sizeof(original_f54_ctrl182.data));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore f54_ctrl182 data\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-	retval = test_do_command(COMMAND_FORCE_UPDATE);
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to do force update in step 9\n",
-				__func__);
-		retval = 0;
-		goto exit;
-	}
-
-	memset(p_rt92_image_1, 0x00, tx_num * rx_num * 2);
-
-	/* step 10 */
-	/* phase 1, data verification */
-	/* the delta value should be lower than the test limit */
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_ONE_LOWER_SHENCHAO) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_ONE_UPPER_SHENCHAO)){
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d at phase 1 (limit: %d - %d)\n",
-	 						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_ONE_LOWER_SHENCHAO, ELEC_OPEN_TEST_LIMIT_ONE_UPPER_SHENCHAO);
-
-					p_rt92_image_1[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_1[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_ONE_LOWER) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_ONE_UPPER)){
-
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d at phase 1 (limit: %d - %d)\n",
-	 						__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_ONE_LOWER, ELEC_OPEN_TEST_LIMIT_ONE_UPPER);
-
-					p_rt92_image_1[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_1[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.1 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	memset(p_rt92_image_2, 0x00, tx_num * rx_num * 2);
-
-	/* step 11 */
-	/* phase 2, data calculation and verification */
-	/* the calculated ratio should be lower than the test limit */
-
-
-	tddi_ratio_calculation(p_rt92_delta_image);
-
-#ifdef F54_SHOW_MAX_MIN
-	min = max = p_rt92_delta_image[0];
-#endif
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-#ifdef F54_SHOW_MAX_MIN
-			min = min_t(signed short, p_rt92_delta_image[i*rx_num + j], min);
-			max = max_t(signed short, p_rt92_delta_image[i*rx_num + j], max);
-#endif
-			if (tp_flag == 1) {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_TWO_LOWER_SHENCHAO) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_TWO_UPPER_SHENCHAO)){
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:EBBG fail at (tx%-2d, rx%-2d) = %-4d at phase 2 (limit: %d - %d)\n",
-							__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_TWO_LOWER_SHENCHAO, ELEC_OPEN_TEST_LIMIT_TWO_UPPER_SHENCHAO);
-
-					p_rt92_image_2[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_2[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-			else {
-				if ((p_rt92_delta_image[i * rx_num + j] < ELEC_OPEN_TEST_LIMIT_TWO_LOWER) ||
-					(p_rt92_delta_image[i * rx_num + j] > ELEC_OPEN_TEST_LIMIT_TWO_UPPER)){
-
-					dev_err(f54->rmi4_data->pdev->dev.parent,
-						"%s:Tianma fail at (tx%-2d, rx%-2d) = %-4d at phase 2 (limit: %d - %d)\n",
-							__func__, i, j, p_rt92_delta_image[i*rx_num + j],
-							ELEC_OPEN_TEST_LIMIT_TWO_LOWER, ELEC_OPEN_TEST_LIMIT_TWO_UPPER);
-
-					p_rt92_image_2[i*rx_num + j] = _TEST_FAIL;
-				}
-				else {
-					p_rt92_image_2[i*rx_num + j] = _TEST_PASS;
-				}
-			}
-		}
-	}
-#ifdef F54_SHOW_MAX_MIN
-	pr_info("%s : ph.2 data range (max, min) = (%-4d, %-4d)\n", __func__, max, min);
-#endif
-
-	/* step 12 */
-	/* filling out the g_tddi_amp_open_data_output */
-	/* 1: fail / 0 : pass */
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			g_tddi_amp_open_data_output[i * rx_num + j] =
-				(unsigned char)(p_rt92_image_1[i * rx_num + j]) || p_rt92_image_2[i * rx_num + j];
-		}
-	}
-	for (i = 0; i < tx_num; i++) {
-		for (j = 0; j < rx_num; j++) {
-			if (g_tddi_amp_open_data_output[i * rx_num + j] != _TEST_PASS) {
-
-				fail_count += 1;
-			}
-		}
-	}
-
-	kfree(g_tddi_amp_open_data_output);
-	g_tddi_amp_open_data_output = NULL;
-
-
-	retval = ((fail_count == 0) ? 2 : 1);
-
-exit:
-
-	kfree(p_report_data_8);
-	kfree(p_rt92_image_1);
-	kfree(p_rt92_image_2);
-	kfree(p_rt92_delta_image);
-
-	return retval;
-}
-
-static int test_sysfs_resume_touch_func(void)
-{
-	int retval;
-	unsigned char device_ctrl;
-
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			rmi4_data->f01_ctrl_base_addr,
-			&device_ctrl,
-			sizeof(device_ctrl));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore no sleep setting\n",
-				__func__);
-		return 0;
-	}
-
-	device_ctrl = device_ctrl & ~NO_SLEEP_ON;
-	device_ctrl |= rmi4_data->no_sleep_setting;
-
-	retval = synaptics_rmi4_reg_write(rmi4_data,
-			rmi4_data->f01_ctrl_base_addr,
-			&device_ctrl,
-			sizeof(device_ctrl));
-	if (retval < 0) {
-		dev_err(rmi4_data->pdev->dev.parent,
-				"%s: Failed to restore no sleep setting\n",
-				__func__);
-		return 0;
-	}
-
-	test_set_interrupt(false);
-
-	if (f54->skip_preparation)
-		return 2;
-
-	switch (f54->report_type) {
-	case F54_16BIT_IMAGE:
-	case F54_RAW_16BIT_IMAGE:
-	case F54_SENSOR_SPEED:
-	case F54_ADC_RANGE:
-	case F54_ABS_RAW_CAP:
-	case F54_ABS_DELTA_CAP:
-	case F54_ABS_HYBRID_DELTA_CAP:
-	case F54_ABS_HYBRID_RAW_CAP:
-	case F54_FULL_RAW_CAP_TDDI:
-	/* tddi f54 test reporting + */
-	case F54_NOISE_TDDI:
-	case F54_EE_SHORT_TDDI:
-	/* tddi f54 test reporting - */
-		break;
-	case F54_AMP_RAW_ADC:
-		if (f54->query_49.has_ctrl188) {
-			retval = synaptics_rmi4_reg_read(rmi4_data,
-					f54->control.reg_188->address,
-					f54->control.reg_188->data,
-					sizeof(f54->control.reg_188->data));
-			if (retval < 0) {
-				dev_err(rmi4_data->pdev->dev.parent,
-						"%s: Failed to set start production test\n",
-						__func__);
-				return 0;
-			}
-			f54->control.reg_188->start_production_test = 0;
-			retval = synaptics_rmi4_reg_write(rmi4_data,
-					f54->control.reg_188->address,
-					f54->control.reg_188->data,
-					sizeof(f54->control.reg_188->data));
-			if (retval < 0) {
-				dev_err(rmi4_data->pdev->dev.parent,
-						"%s: Failed to set start production test\n",
-						__func__);
-				return 0;
-			}
-		}
-		break;
-	default:
-		rmi4_data->reset_device(rmi4_data, false);
-	}
-
-	return 2;
-}
-
-static int test_proc_tp_selftest_func(void)
-{
-	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
-	unsigned char config_ver[20] = {0};
-	int retval = 0;
-	int retval_a = 0;
-	int retval_b = 0;
-	int retval_c = 0;
-
-
-	SYN_LOG("proc ENTER tp_selftest-ee_short\n");
-	retval_a = test_sysfs_tddi_ee_short_func();
-	if (retval_a == 2) {
-		SYN_LOG("tp_selftest-ee_short pass\n");
-	} else if (retval_a == 1) {
-		SYN_LOG("tp_selftest-ee_short failed\n");
-	} else {
-		SYN_LOG("tp_selftest-ee_short invalid\n");
-		return 0;
-	}
-
-
-	SYN_LOG("proc ENTER tp_selftest-electrode_open\n");
-	retval_b = test_sysfs_tddi_amp_electrode_open_func();
-	if (retval_b == 2) {
-		SYN_LOG("tp_selftest-electrode_open pass\n");
-	} else if (retval_b == 1) {
-		SYN_LOG("tp_selftest-electrode_open failed\n");
-	} else {
-		SYN_LOG("tp_selftest-electrode_open invalid\n");
-		return 0;
-	}
-
-
-	SYN_LOG("resume touch\n");
-	retval_c = test_sysfs_resume_touch_func();
-	if (retval_c == 2) {
-		SYN_LOG("resume touch pass\n");
-	} else {
-		SYN_LOG("resume touch invalid\n");
-		return 0;
-	}
-
-
-	retval = synaptics_rmi4_reg_read(rmi4_data,
-			0x000c,
-			config_ver,
-			1);
-	if (retval < 0)
-	{
-		SYN_LOG("i2c comm test failed\n");
-	}
-
-	if ((retval_a == 2) && (retval_b == 2)) {
-		return 2;
-	} else {
-		return 1;
-	}
-}
-
-
-/* tddi f54 test reporting - */
-
 
 static ssize_t test_sysfs_data_read(struct file *data_file,
 		struct kobject *kobj, struct bin_attribute *attributes,
@@ -6155,7 +2939,6 @@ static void test_report_work(struct work_struct *work)
 {
 	int retval;
 	unsigned char report_index[2];
-	unsigned int byte_delay_us;
 	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
 
 	mutex_lock(&f54->status_mutex);
@@ -6210,19 +2993,10 @@ static void test_report_work(struct work_struct *work)
 		goto exit;
 	}
 
-	if ((rmi4_data->hw_if->bus_access->type == BUS_SPI) && f54->burst_read && f54->is_burst) {
-		byte_delay_us = rmi4_data->hw_if->board_data->byte_delay_us;
-		rmi4_data->hw_if->board_data->byte_delay_us = 0;
-	}
-
 	retval = synaptics_rmi4_reg_read(rmi4_data,
 			f54->data_base_addr + REPORT_DATA_OFFSET,
 			f54->report_data,
 			f54->report_size);
-
-	if ((rmi4_data->hw_if->bus_access->type == BUS_SPI) && f54->burst_read && f54->is_burst)
-		rmi4_data->hw_if->board_data->byte_delay_us = byte_delay_us;
-
 	if (retval < 0) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to read report data\n",
@@ -6240,7 +3014,6 @@ exit:
 		f54->report_size = 0;
 
 	f54->status = retval;
-	return;
 }
 
 static void test_remove_sysfs(void)
@@ -6248,29 +3021,6 @@ static void test_remove_sysfs(void)
 	sysfs_remove_group(f54->sysfs_dir, &attr_group);
 	sysfs_remove_bin_file(f54->sysfs_dir, &test_report_data);
 	kobject_put(f54->sysfs_dir);
-
-	return;
-}
-
-static struct kobject *tp_selftest_device;
-static DEVICE_ATTR(syn_selftest_result, 0644, test_sysfs_syn_selftest_result_show, test_sysfs_syn_selftest_result_store);
-static int tp_selftest_creat_sys_entry(void)
-{
-	int32_t rc = 0;
-
-	tp_selftest_device = kobject_create_and_add("tp_selftest", NULL);
-	if (tp_selftest_device == NULL) {
-		pr_info("%s: subsystem_register failed\n", __func__);
-		rc = -ENOMEM;
-		return rc ;
-	}
-	rc = sysfs_create_file(tp_selftest_device, &dev_attr_syn_selftest_result.attr);
-	if (rc) {
-		pr_info("%s: sysfs_create_file failed\n", __func__);
-		kobject_del(tp_selftest_device);
-	}
-
-	return 0 ;
 }
 
 static int test_set_sysfs(void)
@@ -6302,8 +3052,7 @@ static int test_set_sysfs(void)
 				__func__);
 		goto exit_attributes;
 	}
-	tp_selftest_creat_sys_entry();
-	lct_ctp_selftest_int(test_proc_tp_selftest_func);
+
 	return 0;
 
 exit_attributes:
@@ -6326,16 +3075,9 @@ static void test_free_control_mem(void)
 	kfree(control.reg_57);
 	kfree(control.reg_86);
 	kfree(control.reg_88);
-	kfree(control.reg_91);
-	kfree(control.reg_96);
-	kfree(control.reg_99);
 	kfree(control.reg_110);
 	kfree(control.reg_149);
-	kfree(control.reg_182);
 	kfree(control.reg_188);
-	kfree(control.reg_223);
-
-	return;
 }
 
 static void test_set_data(void)
@@ -6453,8 +3195,6 @@ static void test_set_data(void)
 		f54->data_31.address = reg_addr;
 		reg_addr++;
 	}
-
-	return;
 }
 
 static int test_set_controls(void)
@@ -6652,8 +3392,12 @@ static int test_set_controls(void)
 	/* controls 68 69 70 71 72 73 */
 	if ((f54->query.has_h_blank) ||
 			(f54->query.has_v_blank) ||
-			(f54->query.has_long_h_blank))
-		reg_addr += CONTROL_68_73_SIZE;
+			(f54->query.has_long_h_blank)) {
+		if (f54->query_68.is_tddi_hic)
+			reg_addr += CONTROL_70_73_SIZE;
+		else
+			reg_addr += CONTROL_68_73_SIZE;
+	}
 
 	/* control 74 */
 	if (f54->query.has_slew_metric)
@@ -6724,16 +3468,8 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_90_SIZE;
 
 	/* control 91 */
-	if (f54->query_21.has_ctrl91) {
-		/* tddi f54 test reporting + */
-		control->reg_91 = kzalloc(sizeof(*(control->reg_91)),
-				GFP_KERNEL);
-		if (!control->reg_91)
-			goto exit_no_mem;
-		control->reg_91->address = reg_addr;
-		/* tddi f54 test reporting - */
+	if (f54->query_21.has_ctrl91)
 		reg_addr += CONTROL_91_SIZE;
-	}
 
 	/* control 92 */
 	if (f54->query_16.has_ctrl92)
@@ -6752,16 +3488,8 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_95_SIZE;
 
 	/* control 96 */
-	if (f54->query_21.has_ctrl96) {
-		/* tddi f54 test reporting + */
-		control->reg_96 = kzalloc(sizeof(*(control->reg_96)),
-				GFP_KERNEL);
-		if (!control->reg_96)
-			goto exit_no_mem;
-		control->reg_96->address = reg_addr;
-		/* tddi f54 test reporting - */
+	if (f54->query_21.has_ctrl96)
 		reg_addr += CONTROL_96_SIZE;
-	}
 
 	/* control 97 */
 	if (f54->query_21.has_ctrl97)
@@ -6772,16 +3500,8 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_98_SIZE;
 
 	/* control 99 */
-	if (f54->query.touch_controller_family == 2) {
-		/* tddi f54 test reporting +  */
-		control->reg_99 = kzalloc(sizeof(*(control->reg_99)),
-				GFP_KERNEL);
-		if (!control->reg_99)
-			goto exit_no_mem;
-		control->reg_99->address = reg_addr;
-		/* tddi f54 test reporting - */
+	if (f54->query.touch_controller_family == 2)
 		reg_addr += CONTROL_99_SIZE;
-	}
 
 	/* control 100 */
 	if (f54->query_16.has_ctrl100)
@@ -6790,7 +3510,6 @@ static int test_set_controls(void)
 	/* control 101 */
 	if (f54->query_22.has_ctrl101)
 		reg_addr += CONTROL_101_SIZE;
-
 
 	/* control 102 */
 	if (f54->query_23.has_ctrl102)
@@ -7095,14 +3814,8 @@ static int test_set_controls(void)
 	/* controls 180 to 181 reserved */
 
 	/* control 182 */
-	if (f54->query_47.has_ctrl182) {
-		control->reg_182 = kzalloc(sizeof(*(control->reg_182)),
-				GFP_KERNEL);
-		if (!control->reg_182)
-			goto exit_no_mem;
-		control->reg_182->address = reg_addr;
+	if (f54->query_47.has_ctrl182)
 		reg_addr += CONTROL_182_SIZE;
-	}
 
 	/* control 183 */
 	if (f54->query_47.has_ctrl183)
@@ -7130,30 +3843,6 @@ static int test_set_controls(void)
 			goto exit_no_mem;
 		control->reg_188->address = reg_addr;
 		reg_addr += CONTROL_188_SIZE;
-	}
-
-	/* control 189 - 195 reserved */
-
-	/* control 196 */
-	if (f54->query_51.has_ctrl196)
-		reg_addr += CONTROL_196_SIZE;
-
-	/* control 197 - 217 reserved */
-
-	/* control 218 reserved */
-	if (f54->query_61.has_ctrl218)
-		reg_addr += CONTROL_218_SIZE;
-
-	/* control 219 - 222 reserved */
-
-	/* control 223 reserved */
-	if (f54->query_64.has_ctrl103_sub3) {
-		control->reg_223 = kzalloc(sizeof(*(control->reg_223)),
-				GFP_KERNEL);
-		if (!control->reg_223)
-			goto exit_no_mem;
-		control->reg_223->address = reg_addr;
-		reg_addr += CONTROL_223_SIZE;
 	}
 
 	return 0;
@@ -7494,11 +4183,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* tddi f54 test reporting +  */
-
-	/* query 52 reserved */
-
-	/* queries 53 54 */
+	/* query 53 54 */
 	if (f54->query_51.has_query53_query54_ctrl198)
 		offset += 2;
 
@@ -7513,7 +4198,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 56 */
+	/* query 56 */
 	if (f54->query_55.has_query56)
 		offset += 1;
 
@@ -7539,15 +4224,15 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 59 */
+	/* query 59 */
 	if (f54->query_58.has_query59)
 		offset += 1;
 
-	/* queries 60 */
+	/* query 60 */
 	if (f54->query_58.has_query60)
 		offset += 1;
 
-	/* queries 61 */
+	/* query 61 */
 	if (f54->query_58.has_query61) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7558,11 +4243,11 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 62 63 */
+	/* query 62 63 */
 	if (f54->query_61.has_ctrl215_query62_query63)
 		offset += 2;
 
-	/* queries 64 */
+	/* query 64 */
 	if (f54->query_61.has_query64) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7573,7 +4258,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 65 */
+	/* query 65 */
 	if (f54->query_64.has_query65) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7584,11 +4269,11 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 66 */
+	/* query 66 */
 	if (f54->query_65.has_query66_ctrl231)
 		offset += 1;
 
-	/* queries 67 */
+	/* query 67 */
 	if (f54->query_65.has_query67) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7599,7 +4284,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 68 */
+	/* query 68 */
 	if (f54->query_67.has_query68) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7610,7 +4295,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	/* queries 69 */
+	/* query 68 */
 	if (f54->query_68.has_query69) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -7620,9 +4305,6 @@ static int test_set_queries(void)
 			return retval;
 		offset += 1;
 	}
-
-	f54->burst_read = f54->query_69.burst_mode_report_type_enabled;
-	/* tddi f54 test reporting -  */
 
 	return 0;
 }
@@ -7651,8 +4333,6 @@ static void test_f54_set_regs(struct synaptics_rmi4_data *rmi4_data,
 			ii++) {
 		f54->intr_mask |= 1 << ii;
 	}
-
-	return;
 }
 
 static int test_f55_set_controls(void)
@@ -7982,7 +4662,6 @@ static int test_f55_set_queries(void)
 		offset += 1;
 
 		f55->extended_amp = f55->query_33.has_extended_amp_pad;
-		f55->extended_amp_btn = f55->query_33.has_extended_amp_btn;
 	}
 
 	return 0;
@@ -7994,25 +4673,31 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 	unsigned char ii;
 	unsigned char rx_electrodes;
 	unsigned char tx_electrodes;
-	struct f55_control_43 ctrl_43;
+	struct f55_control_43 *ctrl_43 = NULL;
+
+	ctrl_43 = kzalloc(sizeof(*ctrl_43), GFP_KERNEL);
+	if (!ctrl_43) {
+		retval = -ENOMEM;
+		goto exit;
+	}
 
 	retval = test_f55_set_queries();
 	if (retval < 0) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to read F55 query registers\n",
 				__func__);
-		return;
+		goto exit;
 	}
 
 	if (!f55->query.has_sensor_assignment)
-		return;
+		goto exit;
 
 	retval = test_f55_set_controls();
 	if (retval < 0) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to set up F55 control registers\n",
 				__func__);
-		return;
+		goto exit;
 	}
 
 	tx_electrodes = f55->query.num_of_tx_electrodes;
@@ -8029,7 +4714,7 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to read F55 tx assignment\n",
 				__func__);
-		return;
+		goto exit;
 	}
 
 	retval = synaptics_rmi4_reg_read(rmi4_data,
@@ -8040,7 +4725,7 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to read F55 rx assignment\n",
 				__func__);
-		return;
+		goto exit;
 	}
 
 	f54->tx_assigned = 0;
@@ -8063,22 +4748,17 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 	if (f55->extended_amp) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f55->control_base_addr + f55->afe_mux_offset,
-				ctrl_43.data,
-				sizeof(ctrl_43.data));
+				ctrl_43->data,
+				sizeof(ctrl_43->data));
 		if (retval < 0) {
 			dev_err(rmi4_data->pdev->dev.parent,
 					"%s: Failed to read F55 AFE mux sizes\n",
 					__func__);
-			return;
+			goto exit;
 		}
 
-		f54->tx_assigned = ctrl_43.afe_l_mux_size +
-				ctrl_43.afe_r_mux_size;
-		/* tddi f54 test reporting +  */
-		f54->swap_sensor_side = ctrl_43.swap_sensor_side;
-		f54->left_mux_size = ctrl_43.afe_l_mux_size;
-		f54->right_mux_size = ctrl_43.afe_r_mux_size;
-		/* tddi f54 test reporting -  */
+		f54->tx_assigned = ctrl_43->afe_l_mux_size +
+				ctrl_43->afe_r_mux_size;
 	}
 
 	/* force mapping */
@@ -8094,7 +4774,7 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 			dev_err(rmi4_data->pdev->dev.parent,
 					"%s: Failed to read F55 force tx assignment\n",
 					__func__);
-			return;
+			goto exit;
 		}
 
 		retval = synaptics_rmi4_reg_read(rmi4_data,
@@ -8105,7 +4785,7 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 			dev_err(rmi4_data->pdev->dev.parent,
 					"%s: Failed to read F55 force rx assignment\n",
 					__func__);
-			return;
+			goto exit;
 		}
 
 		for (ii = 0; ii < tx_electrodes; ii++) {
@@ -8119,6 +4799,8 @@ static void test_f55_init(struct synaptics_rmi4_data *rmi4_data)
 		}
 	}
 
+exit:
+	kfree(ctrl_43);
 	return;
 }
 
@@ -8138,8 +4820,6 @@ static void test_f55_set_regs(struct synaptics_rmi4_data *rmi4_data,
 	f55->control_base_addr = fd->ctrl_base_addr | (page << 8);
 	f55->data_base_addr = fd->data_base_addr | (page << 8);
 	f55->command_base_addr = fd->cmd_base_addr | (page << 8);
-
-	return;
 }
 
 static void test_f21_init(struct synaptics_rmi4_data *rmi4_data)
@@ -8283,8 +4963,6 @@ exit:
 	kfree(query_2);
 	kfree(query_5);
 	kfree(query_11);
-
-	return;
 }
 
 static void test_f21_set_regs(struct synaptics_rmi4_data *rmi4_data,
@@ -8303,8 +4981,6 @@ static void test_f21_set_regs(struct synaptics_rmi4_data *rmi4_data,
 	f21->control_base_addr = fd->ctrl_base_addr | (page << 8);
 	f21->data_base_addr = fd->data_base_addr | (page << 8);
 	f21->command_base_addr = fd->cmd_base_addr | (page << 8);
-
-	return;
 }
 
 static int test_scan_pdt(void)
@@ -8315,7 +4991,6 @@ static int test_scan_pdt(void)
 	unsigned short addr;
 	bool f54found = false;
 	bool f55found = false;
-	struct synaptics_rmi4_fn_desc rmi_fd;
 	struct synaptics_rmi4_data *rmi4_data = f54->rmi4_data;
 
 	for (page = 0; page < PAGES_TO_SERVICE; page++) {
@@ -8324,30 +4999,31 @@ static int test_scan_pdt(void)
 
 			retval = synaptics_rmi4_reg_read(rmi4_data,
 					addr,
-					(unsigned char *)&rmi_fd,
-					sizeof(rmi_fd));
+					(unsigned char *)&rmi4_data->rmi_fd,
+					sizeof(rmi4_data->rmi_fd));
 			if (retval < 0)
 				return retval;
 
 			addr &= ~(MASK_8BIT << 8);
 
-			if (!rmi_fd.fn_number)
+			if (!rmi4_data->rmi_fd.fn_number)
 				break;
 
-			switch (rmi_fd.fn_number) {
+			switch (rmi4_data->rmi_fd.fn_number) {
 			case SYNAPTICS_RMI4_F54:
 				test_f54_set_regs(rmi4_data,
-						&rmi_fd, intr_count, page);
+						&rmi4_data->rmi_fd, intr_count,
+						page);
 				f54found = true;
 				break;
 			case SYNAPTICS_RMI4_F55:
 				test_f55_set_regs(rmi4_data,
-						&rmi_fd, page);
+						&rmi4_data->rmi_fd, page);
 				f55found = true;
 				break;
 			case SYNAPTICS_RMI4_F21:
 				test_f21_set_regs(rmi4_data,
-						&rmi_fd, page);
+						&rmi4_data->rmi_fd, page);
 				break;
 			default:
 				break;
@@ -8356,7 +5032,7 @@ static int test_scan_pdt(void)
 			if (f54found && f55found)
 				goto pdt_done;
 
-			intr_count += rmi_fd.intr_src_count;
+			intr_count += rmi4_data->rmi_fd.intr_src_count;
 		}
 	}
 
@@ -8529,8 +5205,6 @@ static void synaptics_rmi4_test_remove(struct synaptics_rmi4_data *rmi4_data)
 
 exit:
 	complete(&test_remove_complete);
-
-	return;
 }
 
 static void synaptics_rmi4_test_reset(struct synaptics_rmi4_data *rmi4_data)
@@ -8650,8 +5324,6 @@ static void __exit rmi4_test_module_exit(void)
 	synaptics_rmi4_new_function(&test_module, false);
 
 	wait_for_completion(&test_remove_complete);
-
-	return;
 }
 
 module_init(rmi4_test_module_init);

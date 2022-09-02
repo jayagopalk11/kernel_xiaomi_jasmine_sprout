@@ -1,15 +1,5 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (c) 2010-2016, 2018, 2020, The Linux Foundation. All rights reserved. */
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -73,7 +63,7 @@
  * 0b01 Photo
  * 0b10 Cinema
  * 0b11 Game
-*/
+ */
 #define CONFIG_CN_BITS(bits, byte) \
 		(byte = (byte & ~(BIT(4) | BIT(5))) |\
 			((bits & (BIT(0) | BIT(1))) << 4))
@@ -588,7 +578,7 @@ static int hdmi_panel_setup_infoframe(struct hdmi_panel *panel)
 	int rc = 0;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		pr_err("invalid panel data\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -606,7 +596,6 @@ static int hdmi_panel_setup_dc(struct hdmi_panel *panel)
 {
 	u32 hdmi_ctrl_reg;
 	u32 vbi_pkt_reg;
-	int rc = 0;
 
 	pr_debug("Deep Color: %s\n", panel->data->dc_enable ? "ON" : "OFF");
 
@@ -632,22 +621,9 @@ static int hdmi_panel_setup_dc(struct hdmi_panel *panel)
 		vbi_pkt_reg = DSS_REG_R(panel->io, HDMI_VBI_PKT_CTRL);
 		vbi_pkt_reg |= BIT(5) | BIT(4);
 		DSS_REG_W(panel->io, HDMI_VBI_PKT_CTRL, vbi_pkt_reg);
-	} else {
-		hdmi_ctrl_reg = DSS_REG_R(panel->io, HDMI_CTRL);
-
-		/* disable GC CD override */
-		hdmi_ctrl_reg &= ~BIT(27);
-		/* disable deep color for RGB888/YUV444/YUV420 30 bits */
-		hdmi_ctrl_reg &= ~BIT(24);
-		DSS_REG_W(panel->io, HDMI_CTRL, hdmi_ctrl_reg);
-
-		/* disable the GC packet sending */
-		vbi_pkt_reg = DSS_REG_R(panel->io, HDMI_VBI_PKT_CTRL);
-		vbi_pkt_reg &= ~(BIT(5) | BIT(4));
-		DSS_REG_W(panel->io, HDMI_VBI_PKT_CTRL, vbi_pkt_reg);
 	}
 
-	return rc;
+	return 0;
 }
 
 static int hdmi_panel_setup_scrambler(struct hdmi_panel *panel)
@@ -662,7 +638,7 @@ static int hdmi_panel_setup_scrambler(struct hdmi_panel *panel)
 	struct mdss_panel_info *pinfo = NULL;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		pr_err("invalid panel data\n");
 		return -EINVAL;
 	}
 
@@ -674,7 +650,7 @@ static int hdmi_panel_setup_scrambler(struct hdmi_panel *panel)
 
 	pinfo = panel->data->pinfo;
 	if (!pinfo) {
-		pr_err("invalid panel data\n");
+		pr_err("invalid panel info\n");
 		return -EINVAL;
 	}
 
@@ -798,14 +774,14 @@ static int hdmi_panel_power_on(void *input)
 	struct msm_hdmi_mode_timing_info *info;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		pr_err("invalid panel data\n");
 		rc = -EINVAL;
 		goto err;
 	}
 
 	pinfo = panel->data->pinfo;
 	if (!pinfo) {
-		pr_err("invalid panel data\n");
+		pr_err("invalid panel info\n");
 		rc = -EINVAL;
 		goto err;
 	}
@@ -893,7 +869,7 @@ void *hdmi_panel_init(struct hdmi_panel_init_data *data)
 	struct hdmi_panel *panel = NULL;
 
 	if (!data) {
-		pr_err("invalid input\n");
+		pr_err("invalid panel init data\n");
 		goto end;
 	}
 

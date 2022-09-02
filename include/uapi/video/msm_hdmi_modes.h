@@ -1,10 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
+/*
+ * Copyright (c) 2017-2018, 2020, The Linux Foundation. All rights reserved.
+ */
+
 #ifndef _UAPI_MSM_HDMI_MODES_H__
 #define _UAPI_MSM_HDMI_MODES_H__
 #include <linux/types.h>
 #include <linux/errno.h>
 
-#define MSM_HDMI_RGB_888_24BPP_FORMAT       BIT(0)
-#define MSM_HDMI_YUV_420_12BPP_FORMAT       BIT(1)
+#define MSM_HDMI_RGB_888_24BPP_FORMAT       1
+#define MSM_HDMI_YUV_420_12BPP_FORMAT       2
 
 enum aspect_ratio {
 	HDMI_RES_AR_INVALID,
@@ -50,9 +55,9 @@ struct msm_hdmi_mode_timing_info {
 
 #define MSM_HDMI_INIT_RES_PAGE          1
 
-#define MSM_HDMI_MODES_CEA		(1 << 0)
-#define MSM_HDMI_MODES_XTND		(1 << 1)
-#define MSM_HDMI_MODES_DVI		(1 << 2)
+#define MSM_HDMI_MODES_CEA		1
+#define MSM_HDMI_MODES_XTND		2
+#define MSM_HDMI_MODES_DVI		4
 #define MSM_HDMI_MODES_ALL		(MSM_HDMI_MODES_CEA |\
 					 MSM_HDMI_MODES_XTND |\
 					 MSM_HDMI_MODES_DVI)
