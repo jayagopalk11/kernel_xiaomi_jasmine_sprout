@@ -99,12 +99,6 @@ TRACE_DEFINE_ENUM(CP_RESIZE);
 		{ REQ_PREFLUSH,		"PF" },				\
 		{ REQ_FUA,		"FUA" })
 
-#define show_block_temp(temp)						\
-	__print_symbolic(temp,						\
-		{ HOT,		"HOT" },				\
-		{ WARM,		"WARM" },				\
-		{ COLD,		"COLD" })
-
 #define show_data_type(type)						\
 	__print_symbolic(type,						\
 		{ CURSEG_HOT_DATA, 	"Hot DATA" },			\
@@ -342,7 +336,7 @@ TRACE_EVENT(f2fs_unlink_enter,
 		__field(ino_t,	ino)
 		__field(loff_t,	size)
 		__field(blkcnt_t, blocks)
-		__string(name, dentry->d_name.name)
+		__field(const char *,	name)
 	),
 
 	TP_fast_assign(
@@ -350,7 +344,7 @@ TRACE_EVENT(f2fs_unlink_enter,
 		__entry->ino	= dir->i_ino;
 		__entry->size	= dir->i_size;
 		__entry->blocks	= dir->i_blocks;
-		__assign_str(name, dentry->d_name.name);
+		__entry->name	= dentry->d_name.name;
 	),
 
 	TP_printk("dev = (%d,%d), dir ino = %lu, i_size = %lld, "
@@ -358,7 +352,7 @@ TRACE_EVENT(f2fs_unlink_enter,
 		show_dev_ino(__entry),
 		__entry->size,
 		(unsigned long long)__entry->blocks,
-		__get_str(name))
+		__entry->name)
 );
 
 DEFINE_EVENT(f2fs__inode_exit, f2fs_unlink_exit,
@@ -819,7 +813,7 @@ TRACE_EVENT(f2fs_lookup_start,
 	TP_STRUCT__entry(
 		__field(dev_t,	dev)
 		__field(ino_t,	ino)
-		__string(name, dentry->d_name.name)
+		__string(name,	dentry->d_name.name)
 		__field(unsigned int, flags)
 	),
 
@@ -846,7 +840,7 @@ TRACE_EVENT(f2fs_lookup_end,
 	TP_STRUCT__entry(
 		__field(dev_t,	dev)
 		__field(ino_t,	ino)
-		__string(name, dentry->d_name.name)
+		__string(name,	dentry->d_name.name)
 		__field(nid_t,	cino)
 		__field(int,	err)
 	),

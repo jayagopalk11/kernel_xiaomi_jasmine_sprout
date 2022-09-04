@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -15,27 +15,6 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-/*
- * Copyright (c) 2016 Intel Corporation
- *
- * Permission to use, copy, modify, distribute, and sell this software and its
- * documentation for any purpose is hereby granted without fee, provided that
- * the above copyright notice appear in all copies and that both that copyright
- * notice and this permission notice appear in supporting documentation, and
- * that the name of the copyright holders not be used in advertising or
- * publicity pertaining to distribution of the software without specific,
- * written prior permission. The copyright holders make no representations
- * about the suitability of this software for any purpose. It is provided "as
- * is" without express or implied warranty.
- *
- * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
- * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
- * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
- * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
- * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
- * OF THIS SOFTWARE.
- */
 
 #include <linux/kthread.h>
 #include <uapi/linux/sched/types.h>
@@ -46,58 +25,6 @@
 #include "msm_fence.h"
 #include "msm_gpu.h"
 #include "msm_kms.h"
-#include "sde_wb.h"
-
-#define TEARDOWN_DEADLOCK_RETRY_MAX 5
-#include "msm_gem.h"
-#include "msm_mmu.h"
-
-static void msm_drm_helper_hotplug_event(struct drm_device *dev)
-{
-	struct drm_connector *connector;
-	char *event_string;
-	char const *connector_name;
-	char *envp[2];
-
-	if (!dev) {
-		DRM_ERROR("hotplug_event failed, invalid input\n");
-		return;
-	}
-
-	if (!dev->mode_config.poll_enabled)
-		return;
-
-	event_string = kzalloc(SZ_4K, GFP_KERNEL);
-	if (!event_string) {
-		DRM_ERROR("failed to allocate event string\n");
-		return;
-	}
-
-	mutex_lock(&dev->mode_config.mutex);
-	drm_for_each_connector(connector, dev) {
-		/* Only handle HPD capable connectors. */
-		if (!(connector->polled & DRM_CONNECTOR_POLL_HPD))
-			continue;
-
-		connector->status = connector->funcs->detect(connector, false);
-
-		if (connector->name)
-			connector_name = connector->name;
-		else
-			connector_name = "unknown";
-
-		snprintf(event_string, SZ_4K, "name=%s status=%s\n",
-			connector_name,
-			drm_get_connector_status_name(connector->status));
-		DRM_DEBUG("generating hotplug event [%s]\n", event_string);
-		envp[0] = event_string;
-		envp[1] = NULL;
-		kobject_uevent_env(&dev->primary->kdev->kobj, KOBJ_CHANGE,
-				envp);
-	}
-	mutex_unlock(&dev->mode_config.mutex);
-	kfree(event_string);
-}
 
 
 /*
@@ -243,8 +170,7 @@ void __iomem *msm_ioremap(struct platform_device *pdev, const char *name,
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 	if (!res) {
-		dev_err(&pdev->dev, "failed to get memory resource: %s\n",
-			       name);
+		dev_err(&pdev->dev, "failed to get memory resource: %s\n", name);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -257,21 +183,15 @@ void __iomem *msm_ioremap(struct platform_device *pdev, const char *name,
 	}
 
 	if (reglog)
-		printk(KERN_DEBUG "IO:region %s %pk %08lx\n", dbgname,
-				ptr, size);
+		printk(KERN_DEBUG "IO:region %s %p %08lx\n", dbgname, ptr, size);
 
 	return ptr;
-}
-
-void msm_iounmap(struct platform_device *pdev, void __iomem *addr)
-{
-	devm_iounmap(&pdev->dev, addr);
 }
 
 void msm_writel(u32 data, void __iomem *addr)
 {
 	if (reglog)
-		pr_debug("IO:W %pK %08x\n", addr, data);
+		printk(KERN_DEBUG "IO:W %p %08x\n", addr, data);
 	writel(data, addr);
 }
 
@@ -298,16 +218,12 @@ static void vblank_ctrl_worker(struct kthread_work *work)
 	struct msm_kms *kms = priv->kms;
 	struct vblank_event *vbl_ev, *tmp;
 	unsigned long flags;
-	LIST_HEAD(tmp_head);
 
 	spin_lock_irqsave(&vbl_ctrl->lock, flags);
 	list_for_each_entry_safe(vbl_ev, tmp, &vbl_ctrl->event_list, node) {
 		list_del(&vbl_ev->node);
-		list_add_tail(&vbl_ev->node, &tmp_head);
-	}
-	spin_unlock_irqrestore(&vbl_ctrl->lock, flags);
+		spin_unlock_irqrestore(&vbl_ctrl->lock, flags);
 
-	list_for_each_entry_safe(vbl_ev, tmp, &tmp_head, node) {
 		if (vbl_ev->enable)
 			kms->funcs->enable_vblank(kms,
 						priv->crtcs[vbl_ev->crtc_id]);
@@ -316,7 +232,11 @@ static void vblank_ctrl_worker(struct kthread_work *work)
 						priv->crtcs[vbl_ev->crtc_id]);
 
 		kfree(vbl_ev);
+
+		spin_lock_irqsave(&vbl_ctrl->lock, flags);
 	}
+
+	spin_unlock_irqrestore(&vbl_ctrl->lock, flags);
 }
 
 static int vblank_ctrl_queue_work(struct msm_drm_private *priv,
@@ -435,6 +355,8 @@ static int get_mdp_ver(struct platform_device *pdev)
 	return (int) (unsigned long) of_device_get_match_data(dev);
 }
 
+#include <linux/of_address.h>
+
 static int msm_init_vram(struct drm_device *dev)
 {
 	struct msm_drm_private *priv = dev->dev_private;
@@ -466,7 +388,7 @@ static int msm_init_vram(struct drm_device *dev)
 		of_node_put(node);
 		if (ret)
 			return ret;
-		size = r.end - r.start;
+		size = r.end - r.start + 1;
 		DRM_INFO("using VRAM carveout: %lx@%pa\n", size, &r.start);
 
 		/* if we have no IOMMU, then we need to use carveout allocator.
@@ -554,37 +476,21 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 
 	priv->wq = alloc_ordered_workqueue("msm", 0);
 
-	INIT_LIST_HEAD(&priv->client_event_list);
 	INIT_LIST_HEAD(&priv->inactive_list);
 	INIT_LIST_HEAD(&priv->vblank_ctrl.event_list);
 	kthread_init_work(&priv->vblank_ctrl.work, vblank_ctrl_worker);
 	spin_lock_init(&priv->vblank_ctrl.lock);
-	hash_init(priv->mn_hash);
-	mutex_init(&priv->mn_lock);
 
 	drm_mode_config_init(ddev);
 
-	ret = sde_power_resource_init(pdev, &priv->phandle);
-	if (ret) {
-		pr_err("sde power resource init failed\n");
-		goto fail;
-	}
-
-	priv->pclient = sde_power_client_create(&priv->phandle, "sde");
-	if (IS_ERR_OR_NULL(priv->pclient)) {
-		pr_err("sde power client create failed\n");
-		ret = -EINVAL;
-		goto fail;
-	}
+	ret = msm_init_vram(ddev);
+	if (ret)
+		goto err_destroy_mdss;
 
 	/* Bind all our sub-components: */
 	ret = component_bind_all(dev, ddev);
 	if (ret)
 		goto err_destroy_mdss;
-
-	ret = msm_init_vram(ddev);
-	if (ret)
-		goto err_msm_uninit;
 
 	if (!dev->dma_parms) {
 		dev->dma_parms = devm_kzalloc(dev, sizeof(*dev->dma_parms),
@@ -597,16 +503,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	dma_set_max_seg_size(dev, DMA_BIT_MASK(32));
 
 	msm_gem_shrinker_init(ddev);
-
-	dbg_power_ctrl.handle = &priv->phandle;
-	dbg_power_ctrl.client = priv->pclient;
-	dbg_power_ctrl.enable_fn = msm_power_enable_wrapper;
-	ret = sde_dbg_init(dev->primary->debugfs_root, &pdev->dev,
-			&dbg_power_ctrl);
-	if (ret) {
-		dev_err(dev->dev, "failed to init sde dbg: %d\n", ret);
-		goto fail;
-	}
 
 	switch (get_mdp_ver(pdev)) {
 	case KMS_MDP4:
@@ -645,39 +541,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 		if (ret) {
 			dev_err(dev, "kms hw init failed: %d\n", ret);
 			goto err_msm_uninit;
-		}
-	}
-	/**
-	 * this priority was found during empiric testing to have appropriate
-	 * realtime scheduling to process display updates and interact with
-	 * other real time and normal priority task
-	 */
-	param.sched_priority = 16;
-	/* initialize commit thread structure */
-	for (i = 0; i < priv->num_crtcs; i++) {
-		priv->disp_thread[i].crtc_id = priv->crtcs[i]->base.id;
-		init_kthread_worker(&priv->disp_thread[i].worker);
-		priv->disp_thread[i].dev = dev;
-		priv->disp_thread[i].thread =
-			kthread_run(kthread_worker_fn,
-				&priv->disp_thread[i].worker,
-				"crtc_commit:%d",
-				priv->disp_thread[i].crtc_id);
-		ret = sched_setscheduler(priv->disp_thread[i].thread,
-							SCHED_FIFO, &param);
-		if (ret)
-			pr_warn("display thread priority update failed: %d\n",
-									ret);
-
-		if (IS_ERR(priv->disp_thread[i].thread)) {
-			dev_err(dev->dev, "failed to create kthread\n");
-			priv->disp_thread[i].thread = NULL;
-			/* clean up previously created threads if any */
-			for (i -= 1; i >= 0; i--) {
-				kthread_stop(priv->disp_thread[i].thread);
-				priv->disp_thread[i].thread = NULL;
-			}
-			goto fail;
 		}
 	}
 
@@ -808,11 +671,7 @@ err_unref_drm_dev:
 /*
  * DRM operations:
  */
-#ifdef CONFIG_QCOM_KGSL
-static void load_gpu(struct drm_device *dev)
-{
-}
-#else
+
 static void load_gpu(struct drm_device *dev)
 {
 	static DEFINE_MUTEX(init_lock);
@@ -825,7 +684,6 @@ static void load_gpu(struct drm_device *dev)
 
 	mutex_unlock(&init_lock);
 }
-#endif
 
 static int context_init(struct drm_device *dev, struct drm_file *file)
 {
@@ -838,11 +696,6 @@ static int context_init(struct drm_device *dev, struct drm_file *file)
 	msm_submitqueue_init(dev, ctx);
 
 	file->driver_priv = ctx;
-
-	kms = priv->kms;
-
-	if (kms && kms->funcs && kms->funcs->postopen)
-		kms->funcs->postopen(kms, file);
 
 	return 0;
 }
@@ -868,28 +721,10 @@ static void msm_postclose(struct drm_device *dev, struct drm_file *file)
 	struct msm_drm_private *priv = dev->dev_private;
 	struct msm_file_private *ctx = file->driver_priv;
 
-static void msm_postclose(struct drm_device *dev, struct drm_file *file)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-	struct msm_file_private *ctx = file->driver_priv;
-	struct msm_kms *kms = priv->kms;
-
-	if (kms && kms->funcs && kms->funcs->postclose)
-		kms->funcs->postclose(kms, file);
-
-	if (!ctx)
-		return;
-
-	msm_submitqueue_close(ctx);
-
-	if (priv->gpu) {
-		msm_gpu_cleanup_counters(priv->gpu, ctx);
-
-		if (ctx->aspace && ctx->aspace != priv->gpu->aspace) {
-			ctx->aspace->mmu->funcs->detach(ctx->aspace->mmu);
-			msm_gem_address_space_put(ctx->aspace);
-		}
-	}
+	mutex_lock(&dev->struct_mutex);
+	if (ctx == priv->lastctx)
+		priv->lastctx = NULL;
+	mutex_unlock(&dev->struct_mutex);
 
 	context_close(ctx);
 }
@@ -933,7 +768,7 @@ static int msm_enable_vblank(struct drm_device *dev, unsigned int pipe)
 	struct msm_kms *kms = priv->kms;
 	if (!kms)
 		return -ENXIO;
-	DBG("dev=%pK, crtc=%u", dev, pipe);
+	DBG("dev=%p, crtc=%u", dev, pipe);
 	return vblank_ctrl_queue_work(priv, pipe, true);
 }
 
@@ -943,7 +778,7 @@ static void msm_disable_vblank(struct drm_device *dev, unsigned int pipe)
 	struct msm_kms *kms = priv->kms;
 	if (!kms)
 		return;
-	DBG("dev=%pK, crtc=%u", dev, pipe);
+	DBG("dev=%p, crtc=%u", dev, pipe);
 	vblank_ctrl_queue_work(priv, pipe, false);
 }
 
@@ -983,20 +818,6 @@ static int msm_ioctl_gem_new(struct drm_device *dev, void *data,
 	}
 
 	return msm_gem_new_handle(dev, file, args->size,
-			args->flags, &args->handle);
-}
-
-static int msm_ioctl_gem_svm_new(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct drm_msm_gem_svm_new *args = data;
-
-	if (args->flags & ~MSM_BO_FLAGS) {
-		DRM_ERROR("invalid flags: %08x\n", args->flags);
-		return -EINVAL;
-	}
-
-	return msm_gem_svm_new_handle(dev, file, args->hostptr, args->size,
 			args->flags, &args->handle);
 }
 
@@ -1063,8 +884,6 @@ static int msm_ioctl_gem_info(struct drm_device *dev, void *data,
 {
 	struct drm_msm_gem_info *args = data;
 	struct drm_gem_object *obj;
-	struct msm_gem_object *msm_obj;
-	struct msm_file_private *ctx = file->driver_priv;
 	int ret = 0;
 
 	if (args->flags & ~MSM_INFO_FLAGS)
@@ -1178,522 +997,6 @@ static int msm_ioctl_submitqueue_close(struct drm_device *dev, void *data,
 	return msm_submitqueue_remove(file->driver_priv, id);
 }
 
-static int msm_event_supported(struct drm_device *dev,
-		struct drm_msm_event_req *req)
-{
-	int ret = -EINVAL;
-	struct drm_mode_object *arg_obj;
-	struct drm_crtc *crtc;
-
-	arg_obj = drm_mode_object_find(dev, req->object_id, req->object_type);
-	if (!arg_obj)
-		return -ENOENT;
-
-	if (arg_obj->type == DRM_MODE_OBJECT_CRTC) {
-		crtc = obj_to_crtc(arg_obj);
-		req->index = drm_crtc_index(crtc);
-	}
-
-	switch (req->event) {
-	case DRM_EVENT_VBLANK:
-	case DRM_EVENT_HISTOGRAM:
-	case DRM_EVENT_AD:
-		if (arg_obj->type == DRM_MODE_OBJECT_CRTC)
-			ret = 0;
-		break;
-	default:
-		break;
-	}
-	return ret;
-}
-
-static void msm_vblank_read_cb(struct drm_pending_event *e)
-{
-	struct drm_pending_vblank_event *vblank;
-	struct msm_drm_private *priv;
-	struct drm_file *file_priv;
-	struct drm_device *dev;
-	struct msm_drm_event *v;
-	int ret = 0;
-	bool need_vblank = false;
-
-	if (!e) {
-		DRM_ERROR("invalid pending event payload\n");
-		return;
-	}
-
-	vblank = container_of(e, struct drm_pending_vblank_event, base);
-	file_priv = vblank->base.file_priv;
-	dev = (file_priv && file_priv->minor) ? file_priv->minor->dev : NULL;
-	priv = (dev) ? dev->dev_private : NULL;
-	if (!priv) {
-		DRM_ERROR("invalid msm private\n");
-		return;
-	}
-
-	list_for_each_entry(v, &priv->client_event_list, base.link) {
-		if (v->base.file_priv != file_priv ||
-		    (v->event.type != DRM_EVENT_VBLANK &&
-		     v->event.type != DRM_EVENT_AD))
-			continue;
-		need_vblank = true;
-		/**
-		 * User-space client requests for N vsyncs when event
-		 * requested is DRM_EVENT_AD. Once the count reaches zero,
-		 * notify stop requesting for additional vsync's.
-		 */
-		if (v->event.type == DRM_EVENT_AD) {
-			if (vblank->event.user_data)
-				vblank->event.user_data--;
-			need_vblank = (vblank->event.user_data) ? true : false;
-		}
-		break;
-	}
-
-	if (!need_vblank) {
-		kfree(vblank);
-	} else {
-		ret = drm_vblank_get(dev, vblank->pipe);
-		if (!ret) {
-			list_add(&vblank->base.link, &dev->vblank_event_list);
-		} else {
-			DRM_ERROR("vblank enable failed ret %d\n", ret);
-			kfree(vblank);
-		}
-	}
-}
-
-static int msm_enable_vblank_event(struct drm_device *dev,
-			struct drm_msm_event_req *req, struct drm_file *file)
-{
-	struct drm_pending_vblank_event *e;
-	int ret = 0;
-	unsigned long flags;
-	struct drm_vblank_crtc *vblank;
-
-	if (WARN_ON(req->index >= dev->num_crtcs))
-		return -EINVAL;
-
-	vblank = &dev->vblank[req->index];
-	e = kzalloc(sizeof(*e), GFP_KERNEL);
-	if (!e)
-		return -ENOMEM;
-
-	e->pipe = req->index;
-	e->base.pid = current->pid;
-	e->event.base.type = DRM_EVENT_VBLANK;
-	e->event.base.length = sizeof(e->event);
-	e->event.user_data = req->client_context;
-	e->base.event = &e->event.base;
-	e->base.file_priv = file;
-	e->base.destroy = msm_vblank_read_cb;
-
-	ret = drm_vblank_get(dev, e->pipe);
-	if (ret) {
-		DRM_ERROR("failed to enable the vblank\n");
-		goto free;
-	}
-
-	spin_lock_irqsave(&dev->event_lock, flags);
-	if (!vblank->enabled) {
-		ret = -EINVAL;
-		goto err_unlock;
-	}
-
-	if (file->event_space < sizeof(e->event)) {
-		ret = -EBUSY;
-		goto err_unlock;
-	}
-	file->event_space -= sizeof(e->event);
-	list_add_tail(&e->base.link, &dev->vblank_event_list);
-err_unlock:
-	spin_unlock_irqrestore(&dev->event_lock, flags);
-free:
-	if (ret)
-		kfree(e);
-	return ret;
-}
-
-static int msm_enable_event(struct drm_device *dev,
-			struct drm_msm_event_req *req, struct drm_file *file)
-{
-	int ret = -EINVAL;
-
-	switch (req->event) {
-	case DRM_EVENT_AD:
-	case DRM_EVENT_VBLANK:
-		ret = msm_enable_vblank_event(dev, req, file);
-		break;
-	default:
-		break;
-	}
-	return ret;
-}
-
-static int msm_disable_vblank_event(struct drm_device *dev,
-			    struct drm_msm_event_req *req,
-			    struct drm_file *file)
-{
-	struct drm_pending_vblank_event *e, *t;
-
-	list_for_each_entry_safe(e, t, &dev->vblank_event_list, base.link) {
-		if (e->pipe != req->index || file != e->base.file_priv)
-			continue;
-		list_del(&e->base.link);
-		drm_vblank_put(dev, req->index);
-		kfree(e);
-	}
-	return 0;
-}
-
-static int msm_disable_event(struct drm_device *dev,
-			    struct drm_msm_event_req *req,
-			    struct drm_file *file)
-{
-	int ret = -EINVAL;
-
-	switch (req->event) {
-	case DRM_EVENT_AD:
-	case DRM_EVENT_VBLANK:
-		ret = msm_disable_vblank_event(dev, req, file);
-		break;
-	default:
-		break;
-	}
-	return ret;
-}
-
-
-static int msm_ioctl_register_event(struct drm_device *dev, void *data,
-				    struct drm_file *file)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-	struct drm_msm_event_req *req_event = data;
-	struct msm_drm_event *client;
-	struct msm_drm_event *v;
-	unsigned long flag = 0;
-	bool dup_request = false;
-	int ret = 0;
-
-	if (msm_event_supported(dev, req_event)) {
-		DRM_ERROR("unsupported event %x object %x object id %d\n",
-			req_event->event, req_event->object_type,
-			req_event->object_id);
-		return -EINVAL;
-	}
-
-	spin_lock_irqsave(&dev->event_lock, flag);
-	list_for_each_entry(v, &priv->client_event_list, base.link) {
-		if (v->base.file_priv != file)
-			continue;
-		if (v->event.type == req_event->event &&
-			v->info.object_id == req_event->object_id) {
-			DRM_ERROR("duplicate request for event %x obj id %d\n",
-				v->event.type, v->info.object_id);
-			dup_request = true;
-			break;
-		}
-	}
-	spin_unlock_irqrestore(&dev->event_lock, flag);
-
-	if (dup_request)
-		return -EINVAL;
-
-	client = kzalloc(sizeof(*client), GFP_KERNEL);
-	if (!client)
-		return -ENOMEM;
-
-	client->base.file_priv = file;
-	client->base.pid = current->pid;
-	client->base.event = &client->event;
-	client->base.destroy = (void (*) (struct drm_pending_event *)) kfree;
-	client->event.type = req_event->event;
-	memcpy(&client->info, req_event, sizeof(client->info));
-
-	spin_lock_irqsave(&dev->event_lock, flag);
-	list_add_tail(&client->base.link, &priv->client_event_list);
-	spin_unlock_irqrestore(&dev->event_lock, flag);
-
-	ret = msm_enable_event(dev, req_event, file);
-	if (ret) {
-		DRM_ERROR("failed to enable event %x object %x object id %d\n",
-			req_event->event, req_event->object_type,
-			req_event->object_id);
-		spin_lock_irqsave(&dev->event_lock, flag);
-		list_del(&client->base.link);
-		spin_unlock_irqrestore(&dev->event_lock, flag);
-		kfree(client);
-	}
-	return ret;
-}
-
-static int msm_ioctl_deregister_event(struct drm_device *dev, void *data,
-				      struct drm_file *file)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-	struct drm_msm_event_req *req_event = data;
-	struct msm_drm_event *client = NULL;
-	struct msm_drm_event *v, *vt;
-	unsigned long flag = 0;
-
-	if (msm_event_supported(dev, req_event)) {
-		DRM_ERROR("unsupported event %x object %x object id %d\n",
-			req_event->event, req_event->object_type,
-			req_event->object_id);
-		return -EINVAL;
-	}
-
-	spin_lock_irqsave(&dev->event_lock, flag);
-	msm_disable_event(dev, req_event, file);
-	list_for_each_entry_safe(v, vt, &priv->client_event_list, base.link) {
-		if (v->event.type == req_event->event &&
-		    v->info.object_id == req_event->object_id &&
-		    v->base.file_priv == file) {
-			client = v;
-			list_del(&client->base.link);
-			client->base.destroy(&client->base);
-			break;
-		}
-	}
-	spin_unlock_irqrestore(&dev->event_lock, flag);
-
-	return 0;
-}
-
-static int msm_ioctl_gem_sync(struct drm_device *dev, void *data,
-			     struct drm_file *file)
-{
-
-	struct drm_msm_gem_sync *arg = data;
-	int i;
-
-	for (i = 0; i < arg->nr_ops; i++) {
-		struct drm_msm_gem_syncop syncop;
-		struct drm_gem_object *obj;
-		int ret;
-		void __user *ptr =
-			(void __user *)(uintptr_t)
-				(arg->ops + (i * sizeof(syncop)));
-
-		ret = copy_from_user(&syncop, ptr, sizeof(syncop));
-		if (ret)
-			return -EFAULT;
-
-		obj = drm_gem_object_lookup(dev, file, syncop.handle);
-		if (!obj)
-			return -ENOENT;
-
-		msm_gem_sync(obj, syncop.op);
-
-		drm_gem_object_unreference_unlocked(obj);
-	}
-
-	return 0;
-}
-
-void msm_send_crtc_notification(struct drm_crtc *crtc,
-				struct drm_event *event, u8 *payload)
-{
-	struct drm_device *dev = NULL;
-	struct msm_drm_private *priv = NULL;
-	unsigned long flags;
-	struct msm_drm_event *notify, *v;
-	int len = 0;
-
-	if (!crtc || !event || !event->length || !payload) {
-		DRM_ERROR("err param crtc %pK event %pK len %d payload %pK\n",
-			crtc, event, ((event) ? (event->length) : -1),
-			payload);
-		return;
-	}
-	dev = crtc->dev;
-	priv = (dev) ? dev->dev_private : NULL;
-	if (!dev || !priv) {
-		DRM_ERROR("invalid dev %pK priv %pK\n", dev, priv);
-		return;
-	}
-
-	spin_lock_irqsave(&dev->event_lock, flags);
-	list_for_each_entry(v, &priv->client_event_list, base.link) {
-		if (v->event.type != event->type ||
-			crtc->base.id != v->info.object_id)
-			continue;
-		len = event->length + sizeof(struct drm_msm_event_resp);
-		if (v->base.file_priv->event_space < len) {
-			DRM_ERROR("Insufficient space to notify\n");
-			continue;
-		}
-		notify = kzalloc(len, GFP_ATOMIC);
-		if (!notify)
-			continue;
-		notify->base.file_priv = v->base.file_priv;
-		notify->base.event = &notify->event;
-		notify->base.pid = v->base.pid;
-		notify->base.destroy =
-			(void (*)(struct drm_pending_event *)) kfree;
-		notify->event.type = v->event.type;
-		notify->event.length = len;
-		list_add(&notify->base.link,
-			&notify->base.file_priv->event_list);
-		notify->base.file_priv->event_space -= len;
-		memcpy(&notify->info, &v->info, sizeof(notify->info));
-		memcpy(notify->data, payload, event->length);
-		wake_up_interruptible(&notify->base.file_priv->event_wait);
-	}
-	spin_unlock_irqrestore(&dev->event_lock, flags);
-}
-
-static int msm_ioctl_counter_get(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct msm_file_private *ctx = file->driver_priv;
-	struct msm_drm_private *priv = dev->dev_private;
-
-	if (priv->gpu)
-		return msm_gpu_counter_get(priv->gpu, data, ctx);
-
-	return -ENODEV;
-}
-
-static int msm_ioctl_counter_put(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct msm_file_private *ctx = file->driver_priv;
-	struct msm_drm_private *priv = dev->dev_private;
-
-	if (priv->gpu)
-		return msm_gpu_counter_put(priv->gpu, data, ctx);
-
-	return -ENODEV;
-}
-
-static int msm_ioctl_counter_read(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-
-	if (priv->gpu)
-		return msm_gpu_counter_read(priv->gpu, data);
-
-	return -ENODEV;
-}
-
-
-static int msm_ioctl_submitqueue_new(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct drm_msm_submitqueue *args = data;
-	struct msm_drm_private *priv = dev->dev_private;
-	struct msm_gpu *gpu = priv->gpu;
-
-	if (args->flags & ~MSM_SUBMITQUEUE_FLAGS)
-		return -EINVAL;
-
-	if ((gpu->nr_rings > 1) &&
-		(!file->is_master && args->prio == 0)) {
-		DRM_ERROR("Only DRM master can set highest priority ringbuffer\n");
-		return -EPERM;
-	}
-
-	if (args->flags & MSM_SUBMITQUEUE_BYPASS_QOS_TIMEOUT &&
-		!capable(CAP_SYS_ADMIN)) {
-		DRM_ERROR(
-			"Only CAP_SYS_ADMIN processes can bypass the timer\n");
-		return -EPERM;
-	}
-
-	return msm_submitqueue_create(file->driver_priv, args->prio,
-		args->flags, &args->id);
-}
-
-static int msm_ioctl_submitqueue_query(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct drm_msm_submitqueue_query *args = data;
-	void __user *ptr = (void __user *)(uintptr_t) args->data;
-
-	return msm_submitqueue_query(file->driver_priv, args->id,
-		args->param, ptr, args->len);
-}
-
-static int msm_ioctl_submitqueue_close(struct drm_device *dev, void *data,
-		struct drm_file *file)
-{
-	struct drm_msm_submitqueue *args = data;
-
-	return msm_submitqueue_remove(file->driver_priv, args->id);
-}
-
-int msm_release(struct inode *inode, struct file *filp)
-{
-	struct drm_file *file_priv = filp->private_data;
-	struct drm_minor *minor = file_priv->minor;
-	struct drm_device *dev = minor->dev;
-	struct msm_drm_private *priv = dev->dev_private;
-	struct msm_drm_event *v, *vt;
-	unsigned long flags;
-
-	spin_lock_irqsave(&dev->event_lock, flags);
-	list_for_each_entry_safe(v, vt, &priv->client_event_list, base.link) {
-		if (v->base.file_priv != file_priv)
-			continue;
-		list_del(&v->base.link);
-		msm_disable_event(dev, &v->info, file_priv);
-		v->base.destroy(&v->base);
-	}
-	spin_unlock_irqrestore(&dev->event_lock, flags);
-
-	return drm_release(inode, filp);
-}
-
-/**
- * msm_ioctl_rmfb2 - remove an FB from the configuration
- * @dev: drm device for the ioctl
- * @data: data pointer for the ioctl
- * @file_priv: drm file for the ioctl call
- *
- * Remove the FB specified by the user.
- *
- * Called by the user via ioctl.
- *
- * Returns:
- * Zero on success, negative errno on failure.
- */
-static int msm_ioctl_rmfb2(struct drm_device *dev, void *data,
-		    struct drm_file *file_priv)
-{
-	struct drm_framebuffer *fb = NULL;
-	struct drm_framebuffer *fbl = NULL;
-	uint32_t *id = data;
-	int found = 0;
-
-	if (!drm_core_check_feature(dev, DRIVER_MODESET))
-		return -EINVAL;
-
-	fb = drm_framebuffer_lookup(dev, *id);
-	if (!fb)
-		return -ENOENT;
-
-	/* drop extra ref from traversing drm_framebuffer_lookup */
-	drm_framebuffer_unreference(fb);
-
-	mutex_lock(&file_priv->fbs_lock);
-	list_for_each_entry(fbl, &file_priv->fbs, filp_head)
-		if (fb == fbl)
-			found = 1;
-	if (!found) {
-		mutex_unlock(&file_priv->fbs_lock);
-		return -ENOENT;
-	}
-
-	list_del_init(&fb->filp_head);
-	mutex_unlock(&file_priv->fbs_lock);
-
-	drm_framebuffer_unreference(fb);
-
-	return 0;
-}
-
 static const struct drm_ioctl_desc msm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MSM_GET_PARAM,    msm_ioctl_get_param,    DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(MSM_GEM_NEW,      msm_ioctl_gem_new,      DRM_AUTH|DRM_RENDER_ALLOW),
@@ -1716,7 +1019,7 @@ static const struct vm_operations_struct vm_ops = {
 static const struct file_operations fops = {
 	.owner              = THIS_MODULE,
 	.open               = drm_open,
-	.release            = msm_release,
+	.release            = drm_release,
 	.unlocked_ioctl     = drm_ioctl,
 	.compat_ioctl       = drm_compat_ioctl,
 	.poll               = drm_poll,
@@ -1763,7 +1066,7 @@ static struct drm_driver msm_driver = {
 	.ioctls             = msm_ioctls,
 	.num_ioctls         = ARRAY_SIZE(msm_ioctls),
 	.fops               = &fops,
-	.name               = "msm_drm",
+	.name               = "msm",
 	.desc               = "MSM Snapdragon DRM",
 	.date               = "20130625",
 	.major              = MSM_VERSION_MAJOR,
@@ -1782,33 +1085,6 @@ static int msm_pm_suspend(struct device *dev)
 	if (kms && kms->funcs && kms->funcs->pm_suspend)
 		return kms->funcs->pm_suspend(dev);
 
-		if (!conn->state || !conn->state->crtc ||
-				conn->dpms != DRM_MODE_DPMS_ON)
-			continue;
-
-		/* force CRTC to be inactive */
-		crtc_state = drm_atomic_get_crtc_state(state,
-				conn->state->crtc);
-		if (IS_ERR_OR_NULL(crtc_state)) {
-			DRM_ERROR("failed to get crtc %d state\n",
-					conn->state->crtc->base.id);
-			drm_atomic_state_free(state);
-			goto unlock;
-		}
-		crtc_state->active = false;
-	}
-
-	/* commit the "disable all" state */
-	ret = drm_atomic_commit(state);
-	if (ret < 0) {
-		DRM_ERROR("failed to disable crtcs, %d\n", ret);
-		drm_atomic_state_free(state);
-	}
-
-unlock:
-	drm_modeset_unlock_all(ddev);
-
-	/* disable hot-plug polling */
 	drm_kms_helper_poll_disable(ddev);
 
 	priv->pm_state = drm_atomic_helper_suspend(ddev);
@@ -1870,27 +1146,6 @@ static int msm_runtime_resume(struct device *dev)
 static const struct dev_pm_ops msm_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(msm_pm_suspend, msm_pm_resume)
 	SET_RUNTIME_PM_OPS(msm_runtime_suspend, msm_runtime_resume, NULL)
-};
-
-static int msm_drm_bind(struct device *dev)
-{
-	int ret;
-
-	ret = drm_platform_init(&msm_driver, to_platform_device(dev));
-	if (ret)
-		DRM_ERROR("drm_platform_init failed: %d\n", ret);
-
-	return ret;
-}
-
-static void msm_drm_unbind(struct device *dev)
-{
-	drm_put_dev(platform_get_drvdata(to_platform_device(dev)));
-}
-
-static const struct component_master_ops msm_drm_ops = {
-	.bind = msm_drm_bind,
-	.unbind = msm_drm_unbind,
 };
 
 /*
@@ -1971,7 +1226,7 @@ static int add_components_mdp(struct device *mdp_dev,
 
 static int compare_name_mdp(struct device *dev, void *data)
 {
-	return (strnstr(dev_name(dev), "mdp") != NULL);
+	return (strstr(dev_name(dev), "mdp") != NULL);
 }
 
 static int add_display_components(struct device *dev,
@@ -2030,13 +1285,6 @@ static const struct of_device_id msm_gpu_match[] = {
 	{ },
 };
 
-#ifdef CONFIG_QCOM_KGSL
-static int add_gpu_components(struct device *dev,
-					      struct component_match **matchptr)
-{
-		return 0;
-}
-#else
 static int add_gpu_components(struct device *dev,
 			      struct component_match **matchptr)
 {
@@ -2054,18 +1302,20 @@ static int add_gpu_components(struct device *dev,
 	return 0;
 }
 
-#else
-static int compare_dev(struct device *dev, void *data)
+static int msm_drm_bind(struct device *dev)
 {
 	return msm_drm_init(dev, &msm_driver);
 }
 
-static int msm_add_master_component(struct device *dev,
-					struct component_match *match)
+static void msm_drm_unbind(struct device *dev)
 {
 	msm_drm_uninit(dev);
 }
-#endif
+
+static const struct component_master_ops msm_drm_ops = {
+	.bind = msm_drm_bind,
+	.unbind = msm_drm_unbind,
+};
 
 /*
  * Platform driver:
@@ -2073,7 +1323,6 @@ static int msm_add_master_component(struct device *dev,
 
 static int msm_pdev_probe(struct platform_device *pdev)
 {
-	int ret;
 	struct component_match *match = NULL;
 	int ret;
 
@@ -2105,7 +1354,6 @@ fail:
 
 static int msm_pdev_remove(struct platform_device *pdev)
 {
-	msm_drm_unbind(&pdev->dev);
 	component_master_del(&pdev->dev, &msm_drm_ops);
 	of_platform_depopulate(&pdev->dev);
 
@@ -2115,30 +1363,12 @@ static int msm_pdev_remove(struct platform_device *pdev)
 static void msm_pdev_shutdown(struct platform_device *pdev)
 {
 	struct drm_device *drm = platform_get_drvdata(pdev);
+	struct msm_drm_private *priv = drm ? drm->dev_private : NULL;
+
+	if (!priv || !priv->kms)
+		return;
 
 	drm_atomic_helper_shutdown(drm);
-}
-
-static void msm_pdev_shutdown(struct platform_device *pdev)
-{
-	struct drm_device *ddev = platform_get_drvdata(pdev);
-	struct msm_drm_private *priv = NULL;
-
-	if (!ddev) {
-		DRM_ERROR("invalid drm device node\n");
-		return;
-	}
-
-	priv = ddev->dev_private;
-	if (!priv) {
-		DRM_ERROR("invalid msm drm private node\n");
-		return;
-	}
-
-	msm_lastclose(ddev);
-
-	/* set this after lastclose to allow kickoff from lastclose */
-	priv->shutdown_in_progress = true;
 }
 
 static const struct of_device_id dt_match[] = {
@@ -2154,22 +1384,11 @@ static struct platform_driver msm_platform_driver = {
 	.remove     = msm_pdev_remove,
 	.shutdown   = msm_pdev_shutdown,
 	.driver     = {
-		.name   = "msm_drm",
+		.name   = "msm",
 		.of_match_table = dt_match,
 		.pm     = &msm_pm_ops,
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
-
-#ifdef CONFIG_QCOM_KGSL
-void __init adreno_register(void)
-{
-}
-
-void __exit adreno_unregister(void)
-{
-}
-#endif
 
 static int __init msm_drm_register(void)
 {
